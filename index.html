@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>霓虹地平线：狂野飙车 3D</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;700;900&family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;600&display=swap');
+      
+      body, html { 
+        margin: 0; 
+        padding: 0; 
+        height: 100%; 
+        overflow: hidden; 
+        background-color: #050505; 
+        color: white; 
+        font-family: 'Noto Sans SC', sans-serif; 
+      }
+      
+      #root { height: 100%; width: 100%; }
+      
+      /* 赛博朋克滚动条 */
+      ::-webkit-scrollbar { width: 8px; }
+      ::-webkit-scrollbar-track { background: #0f172a; }
+      ::-webkit-scrollbar-thumb { background: #06b6d4; border-radius: 4px; }
+      ::-webkit-scrollbar-thumb:hover { background: #22d3ee; }
+      
+      .font-tech { font-family: 'Orbitron', sans-serif; }
+      .font-ui { font-family: 'Rajdhani', 'Noto Sans SC', sans-serif; }
+      
+      .text-shadow-neon { text-shadow: 0 0 10px rgba(0, 255, 255, 0.8); }
+      .text-shadow-red { text-shadow: 0 0 10px rgba(255, 0, 0, 0.8); }
+      .clip-path-slant { clip-path: polygon(10% 0, 100% 0, 100% 100%, 0% 100%); }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
+    "@react-three/fiber": "https://aistudiocdn.com/@react-three/fiber@^9.4.2",
+    "three": "https://aistudiocdn.com/three@^0.181.2",
+    "@react-three/postprocessing": "https://aistudiocdn.com/@react-three/postprocessing@^3.0.4",
+    "postprocessing": "https://aistudiocdn.com/postprocessing@^6.38.0",
+    "simplex-noise": "https://aistudiocdn.com/simplex-noise@^4.0.1"
+  }
+}
+</script>
+</head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
