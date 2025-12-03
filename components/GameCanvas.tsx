@@ -4,12 +4,13 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { EffectComposer, Bloom, ChromaticAberration, Scanline, Vignette, Noise } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { TrackConfig, CarStats, RacerState, WeatherType, BiomeType, Particle, SkidMarkData, RaceStatus, CollisionType } from '../types';
-import { generateTrackPath, createRoadTexture, createBuildingTexture, createStartFinishTexture, getTerrainHeight, LANE_WIDTH, TRACK_WIDTH } from '../constants';
+import { generateTrackPath, createRoadTexture, createBuildingTexture, createStartFinishTexture, createTunnelTexture, getTerrainHeight, LANE_WIDTH, TRACK_WIDTH, FULL_WIDTH, SHOULDER_WIDTH } from '../constants';
 
 // --- 全局纹理 ---
 const roadTexture = createRoadTexture();
 const buildingTexture = createBuildingTexture();
 const startFinishTexture = createStartFinishTexture();
+const tunnelTexture = createTunnelTexture();
 
 // --- 高性能实例组件 ---
 
@@ -133,9 +134,10 @@ const TerrainMesh = ({ config }: { config: TrackConfig }) => {
         for (let i = 0; i < posAttribute.count; i++) {
             const x = posAttribute.getX(i);
             const y = posAttribute.getY(i); 
-            // 使用 shared heightmap
             const height = getTerrainHeight(x, -y, config.id); 
-            posAttribute.setZ(i, height - 2); // 稍微下沉一点，避免z-fighting
+            // Terrain slightly below where track would be to avoid z-fighting on flat areas,
+            // but track mesh foundation will cover gaps.
+            posAttribute.setZ(i, height - 5); 
         }
         
         geo.computeVertexNormals();
@@ -150,25 +152,30 @@ const TerrainMesh = ({ config }: { config: TrackConfig }) => {
     );
 };
 
-const Scenery: React.FC<{ config: TrackConfig, curve: THREE.CatmullRomCurve3 }> = ({ config, curve }) => {
-    const meshRef = useRef<THREE.InstancedMesh>(null);
-    
-    const geometry = useMemo(() => {
-        if (config.id === BiomeType.CITY) return new THREE.BoxGeometry(8, 50, 8); 
-        if (config.id === BiomeType.SNOW) return new THREE.ConeGeometry(4, 15, 6); 
-        return new THREE.DodecahedronGeometry(6); 
-    }, [config.id]);
+// --- Scenery System ---
 
-    const material = useMemo(() => {
-        if (config.id === BiomeType.CITY) return new THREE.MeshStandardMaterial({ map: buildingTexture, color: '#aaa', emissive: config.gridColor, emissiveIntensity: 0.2 });
-        if (config.id === BiomeType.SNOW) return new THREE.MeshStandardMaterial({ color: '#cceeff', roughness: 0.2 });
-        return new THREE.MeshStandardMaterial({ color: '#7a5230', roughness: 0.9 });
-    }, [config.id, config.gridColor]);
+// Generic Layer for Props
+const SceneryLayer = ({ 
+    geometry, 
+    material, 
+    count, 
+    curve, 
+    config, 
+    placementFn 
+}: { 
+    geometry: THREE.BufferGeometry, 
+    material: THREE.Material, 
+    count: number, 
+    curve: THREE.CatmullRomCurve3, 
+    config: TrackConfig,
+    placementFn: (i: number, point: THREE.Vector3, binormal: THREE.Vector3, tangent: THREE.Vector3) => { pos: THREE.Vector3, rot: THREE.Euler, scale: THREE.Vector3 } | null
+}) => {
+    const meshRef = useRef<THREE.InstancedMesh>(null);
 
     useEffect(() => {
         if (!meshRef.current) return;
-        const count = config.sceneryCount;
         const tempObj = new THREE.Object3D();
+        let validCount = 0;
 
         for (let i = 0; i < count; i++) {
             const t = Math.random();
@@ -176,127 +183,344 @@ const Scenery: React.FC<{ config: TrackConfig, curve: THREE.CatmullRomCurve3 }> 
             const tangent = curve.getTangentAt(t).normalize();
             const up = new THREE.Vector3(0, 1, 0);
             const binormal = new THREE.Vector3().crossVectors(tangent, up).normalize();
-            
-            const side = Math.random() > 0.5 ? 1 : -1;
-            // 必须在赛道宽度之外
-            const dist = (TRACK_WIDTH / 2) + 5 + Math.random() * 80; 
-            const pos = point.clone().add(binormal.multiplyScalar(dist * side));
-            
-            // 贴地
-            const terrainH = getTerrainHeight(pos.x, pos.z, config.id);
-            pos.y = terrainH;
-            
-            if (config.id === BiomeType.CITY) pos.y += 25; 
-            else if (config.id === BiomeType.SNOW) pos.y += 7.5;
-            else pos.y += 0;
 
-            tempObj.position.copy(pos);
-            tempObj.rotation.y = Math.random() * Math.PI * 2;
-            const s = 0.8 + Math.random() * 1.5;
-            tempObj.scale.set(s, s, s);
-
-            tempObj.updateMatrix();
-            meshRef.current.setMatrixAt(i, tempObj.matrix);
+            const result = placementFn(i, point, binormal, tangent);
+            if (result) {
+                tempObj.position.copy(result.pos);
+                tempObj.rotation.copy(result.rot);
+                tempObj.scale.copy(result.scale);
+                tempObj.updateMatrix();
+                meshRef.current.setMatrixAt(validCount++, tempObj.matrix);
+            }
         }
+        meshRef.current.count = validCount;
         meshRef.current.instanceMatrix.needsUpdate = true;
-    }, [config, curve]);
+    }, [config, curve, count, placementFn]);
 
-    return <instancedMesh ref={meshRef} args={[geometry, material, config.sceneryCount]} castShadow receiveShadow />;
+    return <instancedMesh ref={meshRef} args={[geometry, material, count]} castShadow receiveShadow />;
 };
 
-// --- 定制赛道 Mesh 生成 (解决 ExtrudeGeometry 翻转和对齐问题) ---
+// Dynamic Traffic for City
+const TrafficSystem = ({ curve }: { curve: THREE.CatmullRomCurve3 }) => {
+    const meshRef = useRef<THREE.InstancedMesh>(null);
+    const count = 100;
+    const dummy = useMemo(() => new THREE.Object3D(), []);
+    
+    // Store state for each car: current t, speed, lane offset, height offset
+    const cars = useMemo(() => {
+        return Array.from({ length: count }).map(() => ({
+            t: Math.random(),
+            speed: 0.1 + Math.random() * 0.2, // relative speed
+            offset: (Math.random() > 0.5 ? 1 : -1) * (20 + Math.random() * 40),
+            height: 15 + Math.random() * 40,
+            color: new THREE.Color().setHSL(Math.random(), 1, 0.5)
+        }));
+    }, []);
+
+    useFrame((_, delta) => {
+        if (!meshRef.current) return;
+        
+        cars.forEach((car, i) => {
+            car.t = (car.t + car.speed * delta * 0.1) % 1;
+            
+            const point = curve.getPointAt(car.t);
+            const tangent = curve.getTangentAt(car.t).normalize();
+            const up = new THREE.Vector3(0, 1, 0);
+            const binormal = new THREE.Vector3().crossVectors(tangent, up).normalize();
+            
+            const pos = point.clone()
+                .add(binormal.multiplyScalar(car.offset))
+                .add(new THREE.Vector3(0, car.height, 0));
+                
+            dummy.position.copy(pos);
+            dummy.lookAt(pos.clone().add(tangent));
+            dummy.updateMatrix();
+            meshRef.current!.setMatrixAt(i, dummy.matrix);
+            meshRef.current!.setColorAt(i, car.color);
+        });
+        meshRef.current.instanceMatrix.needsUpdate = true;
+        if (meshRef.current.instanceColor) meshRef.current.instanceColor.needsUpdate = true;
+    });
+
+    return (
+        <instancedMesh ref={meshRef} args={[undefined, undefined, count]}>
+            <boxGeometry args={[4, 1, 2]} />
+            <meshBasicMaterial toneMapped={false} />
+        </instancedMesh>
+    );
+};
+
+// Street Lights for City
+const StreetLightSystem = ({ curve }: { curve: THREE.CatmullRomCurve3 }) => {
+    const meshRef = useRef<THREE.InstancedMesh>(null);
+    const count = 150; // Every ~1% of track
+    const dummy = useMemo(() => new THREE.Object3D(), []);
+
+    useEffect(() => {
+        if (!meshRef.current) return;
+        
+        for (let i = 0; i < count; i++) {
+            const t = i / count;
+            const point = curve.getPointAt(t);
+            const tangent = curve.getTangentAt(t).normalize();
+            const up = new THREE.Vector3(0, 1, 0);
+            const binormal = new THREE.Vector3().crossVectors(tangent, up).normalize();
+            
+            // Place on both sides
+            const side = i % 2 === 0 ? 1 : -1;
+            const pos = point.clone().add(binormal.multiplyScalar(side * 12)); // Just outside track
+            
+            // Snap to terrain if needed, but for city we assume flat-ish or elevated
+            const h = getTerrainHeight(pos.x, pos.z, BiomeType.CITY);
+            pos.y = Math.max(pos.y, h);
+
+            dummy.position.copy(pos);
+            dummy.rotation.set(0, 0, 0);
+            dummy.scale.set(1, 1, 1);
+            dummy.updateMatrix();
+            
+            meshRef.current.setMatrixAt(i, dummy.matrix);
+        }
+        meshRef.current.instanceMatrix.needsUpdate = true;
+    }, [curve]);
+
+    return (
+        <instancedMesh ref={meshRef} args={[undefined, undefined, count]}>
+            <cylinderGeometry args={[0.2, 0.2, 15, 8]} />
+            <meshStandardMaterial color="#555" emissive="#00ffff" emissiveIntensity={2} />
+        </instancedMesh>
+    );
+};
+
+// Main Biome Environment Controller
+const BiomeEnvironment = ({ config, curve }: { config: TrackConfig, curve: THREE.CatmullRomCurve3 }) => {
+    
+    // Geometries & Materials
+    const buildingGeo = useMemo(() => new THREE.BoxGeometry(10, 60, 10), []);
+    const buildingMat = useMemo(() => new THREE.MeshStandardMaterial({ 
+        map: buildingTexture, color: '#888', emissive: config.gridColor, emissiveIntensity: 0.3 
+    }), [config.gridColor]);
+
+    const treeGeo = useMemo(() => new THREE.ConeGeometry(4, 18, 8), []);
+    const treeMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#2d4c1e', roughness: 0.8 }), []);
+
+    const rockGeo = useMemo(() => new THREE.DodecahedronGeometry(5), []);
+    const rockMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#7a5230', roughness: 0.9 }), []);
+
+    const crystalGeo = useMemo(() => new THREE.OctahedronGeometry(4), []);
+    const crystalMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#aaddff', metalness: 0.8, roughness: 0.1, emissive: '#004488', emissiveIntensity: 0.2 }), []);
+    
+    const cactusGeo = useMemo(() => new THREE.CylinderGeometry(0.8, 0.8, 8, 6), []);
+    const cactusMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#446622' }), []);
+
+    const billboardGeo = useMemo(() => new THREE.PlaneGeometry(12, 6), []);
+    const billboardMat = useMemo(() => new THREE.MeshBasicMaterial({ color: '#ff00ff', side: THREE.DoubleSide }), []);
+
+    // Placement Logics
+    const scatterPlacement = (distBase: number, distVar: number, scaleVar: number) => 
+        (i: number, point: THREE.Vector3, binormal: THREE.Vector3) => {
+            const side = Math.random() > 0.5 ? 1 : -1;
+            const dist = distBase + Math.random() * distVar;
+            const pos = point.clone().add(binormal.multiplyScalar(dist * side));
+            const h = getTerrainHeight(pos.x, pos.z, config.id);
+            pos.y = h;
+            
+            // Adjust height offset based on biome
+            if (config.id === BiomeType.CITY) pos.y += 30; // Buildings sit deep
+            else if (config.id === BiomeType.SNOW) pos.y += 9; // Tree pivot
+            else pos.y += 0;
+
+            const rot = new THREE.Euler(0, Math.random() * Math.PI * 2, 0);
+            const s = 1 + Math.random() * scaleVar;
+            return { pos, rot, scale: new THREE.Vector3(s, s, s) };
+        };
+    
+    const billboardPlacement = (i: number, point: THREE.Vector3, binormal: THREE.Vector3) => {
+        if (Math.random() > 0.1) return null; // Sparse billboards
+        const side = Math.random() > 0.5 ? 1 : -1;
+        const dist = 30 + Math.random() * 20;
+        const pos = point.clone().add(binormal.multiplyScalar(dist * side));
+        pos.y = getTerrainHeight(pos.x, pos.z, config.id) + 30 + Math.random() * 20; // Floating high
+        
+        const rot = new THREE.Euler(0, Math.atan2(point.x - pos.x, point.z - pos.z), 0);
+        return { pos, rot, scale: new THREE.Vector3(1 + Math.random(), 1 + Math.random(), 1) };
+    };
+
+    if (config.id === BiomeType.CITY) {
+        return (
+            <>
+                <SceneryLayer 
+                    geometry={buildingGeo} material={buildingMat} count={600} curve={curve} config={config}
+                    placementFn={scatterPlacement(25, 80, 2)}
+                />
+                <SceneryLayer 
+                    geometry={billboardGeo} material={billboardMat} count={50} curve={curve} config={config}
+                    placementFn={billboardPlacement}
+                />
+                <StreetLightSystem curve={curve} />
+                <TrafficSystem curve={curve} />
+            </>
+        );
+    }
+
+    if (config.id === BiomeType.SNOW) {
+        return (
+            <>
+                <SceneryLayer 
+                    geometry={treeGeo} material={treeMat} count={500} curve={curve} config={config}
+                    placementFn={scatterPlacement(20, 60, 1.5)}
+                />
+                <SceneryLayer 
+                    geometry={crystalGeo} material={crystalMat} count={100} curve={curve} config={config}
+                    placementFn={scatterPlacement(15, 30, 1)}
+                />
+            </>
+        );
+    }
+
+    // Desert (Default)
+    return (
+        <>
+            <SceneryLayer 
+                geometry={rockGeo} material={rockMat} count={300} curve={curve} config={config}
+                placementFn={scatterPlacement(20, 100, 2)}
+            />
+            <SceneryLayer 
+                geometry={cactusGeo} material={cactusMat} count={200} curve={curve} config={config}
+                placementFn={scatterPlacement(15, 40, 0.5)}
+            />
+        </>
+    );
+};
+
+// --- 定制赛道 Mesh 生成 (包含路肩、护栏和基座) ---
 const TrackMesh = ({ curve, config }: { curve: THREE.CatmullRomCurve3, config: TrackConfig }) => {
     const geometry = useMemo(() => {
-        const steps = 1000;
-        const width = TRACK_WIDTH / 2;
+        const steps = 800; // Match path generation steps or higher
+        const roadHalfW = TRACK_WIDTH / 2;
+        const fullHalfW = FULL_WIDTH / 2;
         const wallHeight = 1.2;
         const wallThick = 0.5;
+        const foundationDepth = 50; // Depth of the skirt into the ground
 
         const vertices: number[] = [];
         const uvs: number[] = [];
         const indices: number[] = [];
         const normals: number[] = [];
 
-        // 我们手动构建 Mesh，使用与 Vehicle 物理完全相同的坐标系 (Tangent x Up)
         for (let i = 0; i <= steps; i++) {
             const t = i / steps;
-            const pt = curve.getPointAt(t % 1); // 确保闭环取值正确
+            const pt = curve.getPointAt(t % 1); 
             const tan = curve.getTangentAt(t % 1).normalize();
-            const up = new THREE.Vector3(0, 1, 0); // 强制 Y 轴向上，防止翻转
+            const up = new THREE.Vector3(0, 1, 0);
             const binormal = new THREE.Vector3().crossVectors(tan, up).normalize();
             
-            // 关键：计算该点的赛道左右边缘
-            const left = pt.clone().add(binormal.clone().multiplyScalar(-width));
-            const right = pt.clone().add(binormal.clone().multiplyScalar(width));
-            
-            // 护栏顶点
-            const l_wall_out = pt.clone().add(binormal.clone().multiplyScalar(-(width + wallThick)));
-            const r_wall_out = pt.clone().add(binormal.clone().multiplyScalar(width + wallThick));
-            
-            const l_top = left.clone().add(new THREE.Vector3(0, wallHeight, 0));
-            const l_out_top = l_wall_out.clone().add(new THREE.Vector3(0, wallHeight, 0));
-            
-            const r_top = right.clone().add(new THREE.Vector3(0, wallHeight, 0));
-            const r_out_top = r_wall_out.clone().add(new THREE.Vector3(0, wallHeight, 0));
+            // Calculate positions
+            const P = (offset: number, yOff: number = 0) => 
+                pt.clone().add(binormal.clone().multiplyScalar(offset)).add(new THREE.Vector3(0, yOff, 0));
 
-            // 顶点顺序:
-            // 0: Road Left
-            // 1: Road Right
-            // 2: Left Wall Top Inner
-            // 3: Left Wall Top Outer
-            // 4: Right Wall Top Inner
-            // 5: Right Wall Top Outer
+            // Foundation (Deep skirt)
+            const p_found_l = P(-(fullHalfW + wallThick), -foundationDepth);
+            const p_found_r = P(fullHalfW + wallThick, -foundationDepth);
+
+            // Walls & Road
+            const p_wall_l_out = P(-(fullHalfW + wallThick));
+            const p_wall_l_out_top = P(-(fullHalfW + wallThick), wallHeight);
+            const p_wall_l_in_top = P(-fullHalfW, wallHeight);
+            const p_shoulder_l = P(-fullHalfW);
             
-            // Road
-            vertices.push(left.x, left.y, left.z);
-            vertices.push(right.x, right.y, right.z);
+            const p_road_l = P(-roadHalfW);
+            const p_road_r = P(roadHalfW);
             
-            // Left Wall
-            vertices.push(l_top.x, l_top.y, l_top.z);
-            vertices.push(l_out_top.x, l_out_top.y, l_out_top.z);
+            const p_shoulder_r = P(fullHalfW);
+            const p_wall_r_in_top = P(fullHalfW, wallHeight);
+            const p_wall_r_out_top = P(fullHalfW + wallThick, wallHeight);
+            const p_wall_r_out = P(fullHalfW + wallThick);
+
+            // Push vertices for this slice
+            const pushV = (v: THREE.Vector3) => vertices.push(v.x, v.y, v.z);
             
-            // Right Wall
-            vertices.push(r_top.x, r_top.y, r_top.z);
-            vertices.push(r_out_top.x, r_out_top.y, r_out_top.z);
+            // 0: Left Foundation
+            pushV(p_found_l);
+            // 1: Left Wall Out Bottom
+            pushV(p_wall_l_out); 
+            // 2: Left Wall Out Top
+            pushV(p_wall_l_out_top); 
+            // 3: Left Wall In Top
+            pushV(p_wall_l_in_top); 
+            // 4: Left Shoulder Start
+            pushV(p_shoulder_l); 
+            // 5: Road Left
+            pushV(p_road_l); 
+            // 6: Road Right
+            pushV(p_road_r); 
+            // 7: Right Shoulder End
+            pushV(p_shoulder_r); 
+            // 8: Right Wall In Top
+            pushV(p_wall_r_in_top); 
+            // 9: Right Wall Out Top
+            pushV(p_wall_r_out_top); 
+            // 10: Right Wall Out Bottom
+            pushV(p_wall_r_out);
+            // 11: Right Foundation
+            pushV(p_found_r);
 
             // UVs
-            const repeat = 40;
-            uvs.push(0, t * repeat);
-            uvs.push(1, t * repeat);
-            uvs.push(0, t * repeat); // walls share similar UVs for simplicity
-            uvs.push(0.1, t * repeat);
-            uvs.push(0, t * repeat);
-            uvs.push(0.1, t * repeat);
+            const repeat = 80;
+            const vCoord = t * repeat;
+            
+            uvs.push(0, vCoord); // 0
+            uvs.push(0, vCoord); // 1
+            uvs.push(0, vCoord); // 2
+            uvs.push(0, vCoord); // 3 
+            uvs.push(0.0, vCoord); // 4 (Shoulder Start)
+            uvs.push(0.125, vCoord); // 5 (Road Start)
+            uvs.push(0.875, vCoord); // 6 (Road End)
+            uvs.push(1.0, vCoord); // 7 (Shoulder End)
+            uvs.push(1, vCoord); // 8
+            uvs.push(1, vCoord); // 9
+            uvs.push(1, vCoord); // 10
+            uvs.push(1, vCoord); // 11
 
-            // Normals (Simplified, flat shading usually re-computes these)
-            for(let k=0; k<6; k++) normals.push(0, 1, 0);
+            // Normals placeholder (computed later)
+            for(let k=0; k<12; k++) normals.push(0, 1, 0);
         }
 
         // Indices
-        const stride = 6;
+        const stride = 12;
         for (let i = 0; i < steps; i++) {
-            const base = i * stride;
-            const next = (i + 1) * stride;
-
-            // Road Surface (2 Tris)
-            indices.push(base + 0, next + 0, base + 1);
-            indices.push(next + 0, next + 1, base + 1);
-
-            // Left Wall Inner (Side facing track)
-            indices.push(base + 2, next + 2, base + 0);
-            indices.push(next + 2, next + 0, base + 0);
-
-            // Left Wall Top
-            indices.push(base + 3, next + 3, base + 2);
-            indices.push(next + 3, next + 2, base + 2);
-
-            // Right Wall Inner
-            indices.push(base + 1, next + 1, base + 4);
-            indices.push(next + 1, next + 4, base + 4);
+            const b = i * stride;
+            const n = (i + 1) * stride;
             
-            // Right Wall Top
-            indices.push(base + 4, next + 4, base + 5);
-            indices.push(next + 4, next + 5, base + 5);
+            const addQuad = (i1: number, i2: number) => {
+                indices.push(b + i1, n + i1, b + i2);
+                indices.push(n + i1, n + i2, b + i2);
+            };
+
+            // Foundation Skirts
+            addQuad(0, 1); // Left Found
+            
+            // Left Wall
+            addQuad(1, 2);
+            addQuad(2, 3);
+            addQuad(3, 4);
+            
+            // Left Shoulder
+            addQuad(4, 5);
+            
+            // Main Road
+            addQuad(5, 6);
+            
+            // Right Shoulder
+            addQuad(6, 7);
+            
+            // Right Wall
+            addQuad(7, 8);
+            addQuad(8, 9);
+            addQuad(9, 10);
+
+            // Right Foundation
+            addQuad(10, 11);
         }
 
         const geo = new THREE.BufferGeometry();
@@ -319,15 +543,130 @@ const TrackMesh = ({ curve, config }: { curve: THREE.CatmullRomCurve3, config: T
                     side={THREE.DoubleSide}
                 />
             </mesh>
-            {/* 护栏发光带 */}
-            <mesh geometry={geometry} position={[0, 0.1, 0]}>
+            {/* 护栏发光条 */}
+            <mesh geometry={geometry} position={[0, 0.05, 0]}>
                 <meshBasicMaterial 
                     color={config.gridColor} 
                     wireframe 
                     transparent 
-                    opacity={0.15} 
+                    opacity={0.05} 
                 />
             </mesh>
+        </group>
+    );
+};
+
+// --- Tunnel Mesh ---
+const TunnelMesh = ({ curve, config }: { curve: THREE.CatmullRomCurve3, config: TrackConfig }) => {
+    const geometry = useMemo(() => {
+        // Defines the Tunnel Segment range (must match generateTrackPath)
+        const tStart = 0.65;
+        const tEnd = 0.78;
+        const steps = 50;
+        
+        const vertices: number[] = [];
+        const uvs: number[] = [];
+        const indices: number[] = [];
+        
+        const radius = 18; // Wider tunnel
+        const radialSegs = 16;
+
+        for (let i = 0; i <= steps; i++) {
+            const t = tStart + (tEnd - tStart) * (i / steps);
+            const pt = curve.getPointAt(t);
+            const tan = curve.getTangentAt(t).normalize();
+            const up = new THREE.Vector3(0, 1, 0);
+            const binormal = new THREE.Vector3().crossVectors(tan, up).normalize();
+            const correctedUp = new THREE.Vector3().crossVectors(binormal, tan).normalize();
+
+            // Ring (Arch)
+            for (let j = 0; j <= radialSegs; j++) {
+                const angle = (j / radialSegs) * Math.PI; // 0 to PI
+                const cos = Math.cos(angle);
+                const sin = Math.sin(angle);
+                
+                // Position: centered on track
+                const pos = pt.clone()
+                    .add(binormal.clone().multiplyScalar(cos * radius))
+                    .add(correctedUp.clone().multiplyScalar(sin * radius));
+                
+                vertices.push(pos.x, pos.y, pos.z);
+                uvs.push(i / steps * 5, j / radialSegs);
+            }
+        }
+
+        const stride = radialSegs + 1;
+        for (let i = 0; i < steps; i++) {
+            for (let j = 0; j < radialSegs; j++) {
+                const current = i * stride + j;
+                const next = (i + 1) * stride + j;
+                
+                indices.push(current, next, current + 1);
+                indices.push(next, next + 1, current + 1);
+            }
+        }
+
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+        geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+        geo.setIndex(indices);
+        geo.computeVertexNormals();
+        return geo;
+    }, [curve]);
+
+    return (
+        <mesh geometry={geometry}>
+            <meshStandardMaterial 
+                map={tunnelTexture} 
+                color="#888"
+                emissive={config.gridColor}
+                emissiveIntensity={0.6}
+                roughness={0.3}
+                metalness={0.9}
+                side={THREE.DoubleSide} // Render interior
+            />
+        </mesh>
+    );
+};
+
+// --- Jump Visuals ---
+const JumpArrows = ({ curve }: { curve: THREE.CatmullRomCurve3 }) => {
+    const refs = useRef<THREE.Mesh[]>([]);
+    const jumpStartT = 0.45;
+
+    useEffect(() => {
+        // Place arrows on the ramp
+        refs.current.forEach((mesh, i) => {
+            const t = jumpStartT + i * 0.01;
+            const pt = curve.getPointAt(t);
+            const tan = curve.getTangentAt(t).normalize();
+            mesh.position.copy(pt);
+            mesh.lookAt(pt.clone().add(tan));
+            mesh.position.y += 0.5; // Lift off ground
+        });
+    }, [curve]);
+
+    useFrame(({ clock }) => {
+        const time = clock.getElapsedTime();
+        refs.current.forEach((mesh, i) => {
+            if(mesh) {
+                const scale = 1 + Math.sin(time * 10 - i) * 0.2;
+                mesh.scale.set(scale, scale, scale);
+                (mesh.material as THREE.MeshBasicMaterial).opacity = 0.5 + Math.sin(time * 5 + i) * 0.5;
+            }
+        });
+    });
+
+    return (
+        <group>
+            {[0, 1, 2, 3, 4, 5, 6].map(i => (
+                <mesh key={i} ref={el => refs.current[i] = el!} rotation={[-Math.PI/2, 0, 0]}>
+                    <planeGeometry args={[10, 5]} />
+                    <meshBasicMaterial color="#00ff00" transparent opacity={0.8} side={THREE.DoubleSide}>
+                        {/* Simple Arrow Texture could be procedural, using color for now */}
+                    </meshBasicMaterial>
+                </mesh>
+            ))}
         </group>
     );
 };
@@ -347,28 +686,27 @@ const StartLineMesh = ({ curve }: { curve: THREE.CatmullRomCurve3 }) => {
     return (
         <group position={pos} rotation={rot}>
             <mesh rotation={[-Math.PI/2, 0, 0]} position={[0, 0.05, 0]}>
-                <planeGeometry args={[TRACK_WIDTH, 6]} />
+                <planeGeometry args={[FULL_WIDTH, 6]} />
                 <meshBasicMaterial map={startFinishTexture} transparent />
             </mesh>
             {/* 拱门柱子 */}
-            <mesh position={[-TRACK_WIDTH/2 - 1, 4, 0]}>
+            <mesh position={[-FULL_WIDTH/2 - 1, 4, 0]}>
                 <boxGeometry args={[1, 8, 1]} />
                 <meshStandardMaterial color="#222" />
             </mesh>
-            <mesh position={[TRACK_WIDTH/2 + 1, 4, 0]}>
+            <mesh position={[FULL_WIDTH/2 + 1, 4, 0]}>
                 <boxGeometry args={[1, 8, 1]} />
                 <meshStandardMaterial color="#222" />
             </mesh>
             {/* 横梁 */}
             <mesh position={[0, 7.5, 0]}>
-                <boxGeometry args={[TRACK_WIDTH + 4, 1.5, 1]} />
+                <boxGeometry args={[FULL_WIDTH + 4, 1.5, 1]} />
                 <meshStandardMaterial color="#111" emissive="#ff0000" emissiveIntensity={0.8} />
             </mesh>
              {/* START 标志 */}
              <mesh position={[0, 7.5, 0.6]}>
                 <planeGeometry args={[10, 1]} />
                 <meshBasicMaterial color="#fff" side={THREE.DoubleSide} onUpdate={(self) => {
-                    // Simple procedural text texture could go here, relying on emissive for now
                 }} />
              </mesh>
         </group>
@@ -528,6 +866,66 @@ const DriftSmoke = ({ active, position }: { active: boolean, position?: THREE.Ve
     );
 };
 
+// --- Collision Sparks ---
+const CollisionSparks = ({ active, position }: { active: boolean, position: THREE.Vector3 }) => {
+    const meshRef = useRef<THREE.InstancedMesh>(null);
+    const dummy = useMemo(() => new THREE.Object3D(), []);
+    const particles = useMemo(() => Array.from({ length: 30 }, () => ({
+        life: 0,
+        pos: new THREE.Vector3(),
+        velocity: new THREE.Vector3()
+    })), []);
+    
+    // Trigger burst when active changes to true (handled by parent logic repeatedly calling or resetting?)
+    // Actually, parent will likely just set active=true for a frame or pass a signal.
+    // Better: maintain own state of burst based on prop change or just always emit if active.
+    
+    useFrame((_, delta) => {
+        if (!meshRef.current) return;
+        
+        // Emit logic
+        if (active) {
+            for (let i = 0; i < 5; i++) {
+                const p = particles.find(p => p.life <= 0);
+                if (p) {
+                    p.life = 0.3 + Math.random() * 0.2;
+                    p.pos.copy(position);
+                    p.velocity.set(
+                        (Math.random() - 0.5) * 10,
+                        Math.random() * 10,
+                        (Math.random() - 0.5) * 10
+                    );
+                }
+            }
+        }
+
+        let count = 0;
+        particles.forEach(p => {
+            if (p.life > 0) {
+                p.life -= delta;
+                p.pos.addScaledVector(p.velocity, delta);
+                p.velocity.y -= 20 * delta; // Gravity
+                
+                const s = p.life * 2;
+                dummy.position.copy(p.pos);
+                dummy.scale.set(s, s, s);
+                dummy.lookAt(position); // billboard-ish
+                dummy.updateMatrix();
+                meshRef.current!.setMatrixAt(count++, dummy.matrix);
+            }
+        });
+        meshRef.current.count = count;
+        meshRef.current.instanceMatrix.needsUpdate = true;
+    });
+
+    return (
+        <instancedMesh ref={meshRef} args={[undefined, undefined, 30]}>
+            <planeGeometry args={[0.2, 0.2]} />
+            <meshBasicMaterial color="#ffaa00" blending={THREE.AdditiveBlending} depthWrite={false} />
+        </instancedMesh>
+    );
+}
+
 // --- 车辆组件 (重写对齐逻辑) ---
 
 interface VehicleProps {
@@ -536,13 +934,29 @@ interface VehicleProps {
     isPlayer: boolean;
     sfxVolume?: number;
     skidMarkRef?: any;
+    // New props for customization
+    config?: CarStats;
+    playerCustomization?: any;
 }
 
-const Vehicle: React.FC<VehicleProps> = ({ racerRef, curve, isPlayer, skidMarkRef, sfxVolume = 100 }) => {
+const Vehicle: React.FC<VehicleProps> = ({ racerRef, curve, isPlayer, skidMarkRef, sfxVolume = 100, config, playerCustomization }) => {
     const group = useRef<THREE.Group>(null);
     const chassis = useRef<THREE.Group>(null);
     const lastPos = useRef<THREE.Vector3>(new THREE.Vector3());
     const audio = usePlayerAudio(sfxVolume);
+    const [collisionActive, setCollisionActive] = useState(false);
+
+    // Determine appearance
+    const carColor = useMemo(() => {
+        if (isPlayer && playerCustomization?.color) return playerCustomization.color;
+        return racerRef.current.color;
+    }, [isPlayer, playerCustomization, racerRef]);
+    
+    // Decal texture
+    const decalMap = useMemo(() => {
+        // Implement real texture loading if needed
+        return null; 
+    }, [playerCustomization]);
 
     useFrame((state, delta) => {
         const racer = racerRef.current;
@@ -559,7 +973,8 @@ const Vehicle: React.FC<VehicleProps> = ({ racerRef, curve, isPlayer, skidMarkRe
         
         // 计算物理位置
         // 修正：车道偏移需要乘以实际的赛道宽度比例
-        const laneX = racer.laneOffset * LANE_WIDTH;
+        // laneOffset -1 to 1. Full track width for lanes is TRACK_WIDTH (excluding shoulders)
+        const laneX = racer.laneOffset * (TRACK_WIDTH / 2 - 2); 
         const currentPos = point.clone().add(binormal.clone().multiplyScalar(laneX));
         
         // 确保垂直于切线
@@ -592,10 +1007,22 @@ const Vehicle: React.FC<VehicleProps> = ({ racerRef, curve, isPlayer, skidMarkRe
                 lastPos.current.copy(group.current.position);
             }
         }
+        
+        // Check collision flag from logic (simple workaround: if health drops fast?)
+        // Better: GameScene sets a "collision event" in state. 
+        // For now, we assume GameScene handled the logic and maybe we trigger visual based on sudden speed drop or similar?
+        // Actually, let's just make collision sparks appear if we are off-road or hitting something (handled by GameScene logic passing props?)
+        // For simplicity in this structure: GameScene handles physics.
     });
 
     useEffect(() => {
-        if(group.current) group.current.userData.playCollision = audio.playCollision;
+        if(group.current) {
+            group.current.userData.playCollision = () => {
+                audio.playCollision();
+                setCollisionActive(true);
+                setTimeout(() => setCollisionActive(false), 200);
+            };
+        }
     }, [audio.playCollision]);
 
     return (
@@ -609,8 +1036,16 @@ const Vehicle: React.FC<VehicleProps> = ({ racerRef, curve, isPlayer, skidMarkRe
                  {/* 车身 */}
                  <mesh position={[0, 0.5, 0]} castShadow receiveShadow>
                     <boxGeometry args={[1.8, 0.6, 3.6]} />
-                    <meshStandardMaterial color={racerRef.current.color} metalness={0.7} roughness={0.2} envMapIntensity={1.5} />
+                    <meshStandardMaterial color={carColor} metalness={0.7} roughness={0.2} envMapIntensity={1.5} />
                  </mesh>
+                 {/* Decal Overlay (Simplified) */}
+                 {playerCustomization?.decalId && (
+                     <mesh position={[0, 0.81, 0]} rotation={[-Math.PI/2, 0, 0]}>
+                         <planeGeometry args={[1.5, 3.0]} />
+                         <meshStandardMaterial color="#fff" transparent opacity={0.8} />
+                     </mesh>
+                 )}
+
                  {/* 驾驶舱 */}
                  <mesh position={[0, 0.9, -0.3]}>
                     <boxGeometry args={[1.4, 0.5, 1.8]} />
@@ -619,7 +1054,7 @@ const Vehicle: React.FC<VehicleProps> = ({ racerRef, curve, isPlayer, skidMarkRe
                  {/* 尾翼 */}
                  <mesh position={[0, 1.0, 1.6]}>
                      <boxGeometry args={[2.0, 0.1, 0.5]} />
-                     <meshStandardMaterial color={racerRef.current.color} />
+                     <meshStandardMaterial color={carColor} />
                  </mesh>
                  <mesh position={[-0.8, 0.8, 1.6]}>
                      <boxGeometry args={[0.1, 0.4, 0.4]} />
@@ -659,6 +1094,7 @@ const Vehicle: React.FC<VehicleProps> = ({ racerRef, curve, isPlayer, skidMarkRe
                 </mesh>
             ))}
             <DriftSmoke active={isPlayer && racerRef.current.isDrifting} position={group.current?.position || new THREE.Vector3()} />
+            <CollisionSparks active={collisionActive} position={group.current?.position || new THREE.Vector3()} />
         </group>
     );
 };
@@ -668,6 +1104,7 @@ const Vehicle: React.FC<VehicleProps> = ({ racerRef, curve, isPlayer, skidMarkRe
 interface GameSceneProps {
     trackConfig: TrackConfig;
     carConfig: CarStats;
+    playerCustomization?: any;
     onGameOver: (score: number, status: RaceStatus, rank: number) => void;
     onScoreUpdate: (state: RacerState) => void;
     onCountdown: (count: number) => void;
@@ -678,7 +1115,7 @@ interface GameSceneProps {
 }
 
 export const GameScene: React.FC<GameSceneProps> = ({ 
-    trackConfig, carConfig, onGameOver, onScoreUpdate, onCountdown, raceStatus, quality, sfxVolume, sensitivity
+    trackConfig, carConfig, playerCustomization, onGameOver, onScoreUpdate, onCountdown, raceStatus, quality, sfxVolume, sensitivity
 }) => {
     // 生成赛道曲线
     const curve = useMemo(() => generateTrackPath(42, trackConfig.curveIntensity, trackConfig.length / 3, trackConfig.id), [trackConfig]);
@@ -691,6 +1128,7 @@ export const GameScene: React.FC<GameSceneProps> = ({
     const aiRefs = useRef<RacerState[]>([]);
     const skidMarkRef = useRef<any>(null);
     const collisionCooldown = useRef(0);
+    const shakeIntensity = useRef(0); // Camera Shake Intensity
     const keys = useRef({ left: false, right: false, up: false, down: false, drift: false, nitro: false });
     const MAX_LAPS = 2;
 
@@ -731,7 +1169,8 @@ export const GameScene: React.FC<GameSceneProps> = ({
             if(key === 'shift') keys.current.drift = pressed;
             if(key === ' ') keys.current.nitro = pressed;
             if (pressed && e.key === 'Escape' && raceStatus === RaceStatus.RACING) {
-                onGameOver(0, RaceStatus.WRECKED, 6); // 快速退出作为示例
+                // Should pause, but for now simple quit
+                onGameOver(0, RaceStatus.WRECKED, 6); 
             }
         };
         window.addEventListener('keydown', (e) => handleKey(e, true));
@@ -768,6 +1207,7 @@ export const GameScene: React.FC<GameSceneProps> = ({
         if (keys.current.nitro && p.nitroLevel > 0) {
             p.isNitroActive = true;
             p.nitroLevel = Math.max(0, p.nitroLevel - dt * 40);
+            shakeIntensity.current = Math.max(shakeIntensity.current, 0.15); // Nitro Shake
         } else {
             p.isNitroActive = false;
             p.nitroLevel = Math.min(100, p.nitroLevel + dt * 10);
@@ -791,8 +1231,9 @@ export const GameScene: React.FC<GameSceneProps> = ({
         // 转向
         const sensitivityFactor = sensitivity / 50;
         let turn = 0;
-        if (keys.current.left) turn += 1;
-        if (keys.current.right) turn -= 1;
+        // 修正：按下左键(A/←)应该向左移动(laneOffset减小)，按下右键(D/→)应该向右移动(laneOffset增加)
+        if (keys.current.left) turn -= 1;
+        if (keys.current.right) turn += 1;
         
         // 速度越快，转向越灵敏但受限
         const speedFactor = Math.min(1.0, Math.abs(p.speed) / 50);
@@ -801,11 +1242,11 @@ export const GameScene: React.FC<GameSceneProps> = ({
         p.laneOffset += turn * handling * dt;
         
         // 撞墙检测
-        const limit = (TRACK_WIDTH / 2 - 2) / LANE_WIDTH; // 留出车宽余量
-        if (p.laneOffset > limit || p.laneOffset < -limit) {
-            p.laneOffset = THREE.MathUtils.clamp(p.laneOffset, -limit, limit);
+        if (p.laneOffset > 1.0 || p.laneOffset < -1.0) {
+            p.laneOffset = THREE.MathUtils.clamp(p.laneOffset, -1.0, 1.0);
             p.speed *= 0.9; // 蹭墙减速
             p.health -= dt * 5;
+            shakeIntensity.current = Math.max(shakeIntensity.current, 0.3); // Wall Hit Shake
         }
 
         // 移动
@@ -829,8 +1270,8 @@ export const GameScene: React.FC<GameSceneProps> = ({
                 ai.lastLaneChange = (Math.random() - 0.5) * 2;
             }
             ai.laneOffset = THREE.MathUtils.lerp(ai.laneOffset, ai.lastLaneChange, dt * 0.5);
-             if (ai.laneOffset > limit) ai.laneOffset = limit;
-             if (ai.laneOffset < -limit) ai.laneOffset = -limit;
+             if (ai.laneOffset > 1.0) ai.laneOffset = 1.0;
+             if (ai.laneOffset < -1.0) ai.laneOffset = -1.0;
 
             const aiStep = (ai.speed * dt) / 2000;
             ai.t += aiStep;
@@ -852,7 +1293,11 @@ export const GameScene: React.FC<GameSceneProps> = ({
                 // 弹开
                 const pushDir = p.laneOffset > ai.laneOffset ? 1 : -1;
                 p.laneOffset += pushDir * 0.2;
+                shakeIntensity.current = Math.max(shakeIntensity.current, 0.8); // Car Collision Shake
                 if (p.health <= 0) onGameOver(p.distance * 1000, RaceStatus.WRECKED, 6);
+                
+                // Visual Spark
+                // Ideally trigger via ref
             }
         });
 
@@ -879,7 +1324,9 @@ export const GameScene: React.FC<GameSceneProps> = ({
         const tan = curve.getTangentAt(tClamped).normalize();
         const up = new THREE.Vector3(0,1,0);
         const binormal = new THREE.Vector3().crossVectors(tan, up).normalize();
-        const carWorldPos = pt.clone().add(binormal.multiplyScalar(p.laneOffset * LANE_WIDTH));
+        
+        const laneX = p.laneOffset * (TRACK_WIDTH / 2 - 2);
+        const carWorldPos = pt.clone().add(binormal.multiplyScalar(laneX));
         carWorldPos.y += 1.0; // 视点高度
 
         // 相机目标位置：车后方 + 稍微偏上
@@ -894,9 +1341,20 @@ export const GameScene: React.FC<GameSceneProps> = ({
 
         const targetCamPos = carWorldPos.clone().add(camOffset);
         
-        // 简单的地形避让
+        // 简单的地形避让 (Prevent camera clipping under ground)
         const groundH = getTerrainHeight(targetCamPos.x, targetCamPos.z, trackConfig.id);
+        // Also check if inside a tunnel (approximate check by Y height if needed, but simple Y check works for now)
         if (targetCamPos.y < groundH + 1.5) targetCamPos.y = groundH + 1.5;
+
+        // Apply Shake
+        shakeIntensity.current = THREE.MathUtils.lerp(shakeIntensity.current, 0, dt * 5);
+        if (shakeIntensity.current > 0.01) {
+            targetCamPos.add(new THREE.Vector3(
+                (Math.random() - 0.5) * shakeIntensity.current,
+                (Math.random() - 0.5) * shakeIntensity.current,
+                (Math.random() - 0.5) * shakeIntensity.current
+            ));
+        }
 
         // 增加阻尼，防止震荡
         state.camera.position.lerp(targetCamPos, dt * 5);
@@ -922,12 +1380,22 @@ export const GameScene: React.FC<GameSceneProps> = ({
             
             <BackgroundLayers config={trackConfig} />
             <TrackMesh curve={curve} config={trackConfig} />
+            <TunnelMesh curve={curve} config={trackConfig} />
+            <JumpArrows curve={curve} />
             <StartLineMesh curve={curve} />
             <TerrainMesh config={trackConfig} />
-            <Scenery config={trackConfig} curve={curve} />
+            <BiomeEnvironment config={trackConfig} curve={curve} />
             <InstancedSkidMarks ref={skidMarkRef} />
             
-            <Vehicle racerRef={playerRef} curve={curve} isPlayer={true} skidMarkRef={skidMarkRef} sfxVolume={sfxVolume} />
+            <Vehicle 
+                racerRef={playerRef} 
+                curve={curve} 
+                isPlayer={true} 
+                skidMarkRef={skidMarkRef} 
+                sfxVolume={sfxVolume} 
+                config={carConfig}
+                playerCustomization={playerCustomization}
+            />
             {aiRefs.current.map((ai, i) => (
                 <Vehicle key={ai.id} racerRef={{ current: aiRefs.current[i] } as any} curve={curve} isPlayer={false} sfxVolume={0} />
             ))}

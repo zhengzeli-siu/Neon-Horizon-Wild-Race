@@ -34,6 +34,25 @@ export enum CollisionType {
   CAR = 'CAR'
 }
 
+export enum DecalType {
+  NONE = 'NONE',
+  STRIPE = 'STRIPE',
+  FLAME = 'FLAME',
+  SKULL = 'SKULL'
+}
+
+export enum RimType {
+  STANDARD = 'STANDARD',
+  SPORT = 'SPORT',
+  NEON = 'NEON'
+}
+
+export interface CustomizationConfig {
+  color: string;
+  decalId: DecalType;
+  rimId: RimType;
+}
+
 export interface CarStats {
   id: string;
   name: string;
@@ -69,6 +88,7 @@ export interface PlayerState {
   unlockedCars: string[]; 
   selectedCarId: string;
   highScore: number;
+  carCustomizations: Record<string, CustomizationConfig>;
 }
 
 // 设置菜单状态

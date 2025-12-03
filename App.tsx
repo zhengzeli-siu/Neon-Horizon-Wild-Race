@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Canvas } from '@react-three/fiber';
-import { GameState, BiomeType, PlayerState, SettingsState, RaceStatus, RacerState } from './types';
-import { CARS, TRACKS, PRIZES } from './constants';
+import { GameState, BiomeType, PlayerState, SettingsState, RaceStatus, RacerState, CustomizationConfig, DecalType, RimType } from './types';
+import { CARS, TRACKS, PRIZES, DECALS, RIMS } from './constants';
 import GameScene from './components/GameCanvas';
 import { getTacticalBriefing } from './services/geminiService';
 
@@ -19,6 +19,65 @@ const SettingsIcon = () => (
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
     </svg>
 );
+
+// Radial Speedometer Component
+const SpeedGauge = ({ speed, maxSpeed = 240 }: { speed: number, maxSpeed?: number }) => {
+    const radius = 60;
+    const stroke = 8;
+    const normalizedSpeed = Math.min(Math.abs(speed), maxSpeed);
+    const progress = normalizedSpeed / maxSpeed;
+    
+    // Arc calculation (240 degrees total, -120 to 120)
+    const startAngle = -120;
+    const endAngle = 120;
+    const currentAngle = startAngle + (endAngle - startAngle) * progress;
+
+    const describeArc = (x: number, y: number, r: number, start: number, end: number) => {
+        const startRad = (start - 90) * Math.PI / 180;
+        const endRad = (end - 90) * Math.PI / 180;
+        const largeArc = end - start <= 180 ? "0" : "1";
+        const d = [
+            "M", x + r * Math.cos(startRad), y + r * Math.sin(startRad),
+            "A", r, r, 0, largeArc, 1, x + r * Math.cos(endRad), y + r * Math.sin(endRad)
+        ].join(" ");
+        return d;
+    };
+
+    // Color logic
+    let color = '#06b6d4'; // Cyan
+    if (progress > 0.6) color = '#a855f7'; // Purple
+    if (progress > 0.85) color = '#ef4444'; // Red
+
+    return (
+        <div className="relative w-48 h-48 flex items-center justify-center">
+            <svg className="w-full h-full transform translate-y-4" viewBox="0 0 140 140">
+                {/* Background Arc */}
+                <path d={describeArc(70, 70, radius, startAngle, endAngle)} fill="none" stroke="#1f2937" strokeWidth={stroke} strokeLinecap="round" />
+                {/* Progress Arc */}
+                <path d={describeArc(70, 70, radius, startAngle, currentAngle)} fill="none" stroke={color} strokeWidth={stroke} strokeLinecap="round" className="drop-shadow-[0_0_8px_rgba(6,182,212,0.6)]" />
+                
+                {/* Ticks */}
+                {[0, 0.25, 0.5, 0.75, 1].map((tick, i) => {
+                    const angle = startAngle + (endAngle - startAngle) * tick;
+                    const rad = (angle - 90) * Math.PI / 180;
+                    const r1 = radius - 15;
+                    const r2 = radius - 5;
+                    const x1 = 70 + r1 * Math.cos(rad);
+                    const y1 = 70 + r1 * Math.sin(rad);
+                    const x2 = 70 + r2 * Math.cos(rad);
+                    const y2 = 70 + r2 * Math.sin(rad);
+                    return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#4b5563" strokeWidth="2" />;
+                })}
+            </svg>
+            <div className="absolute inset-0 flex flex-col items-center justify-center pt-8">
+                <span className="text-5xl font-black font-['Orbitron'] text-white drop-shadow-md tracking-tighter">
+                    {Math.floor(Math.abs(speed))}
+                </span>
+                <span className="text-xs text-cyan-500 font-bold tracking-widest mt-0">KM/H</span>
+            </div>
+        </div>
+    );
+};
 
 const App = () => {
     const [gameState, setGameState] = useState<GameState>(GameState.MENU);
@@ -42,15 +101,21 @@ const App = () => {
     const [aiBriefing, setAiBriefing] = useState<string>('');
     const [isBriefingLoading, setIsBriefingLoading] = useState(false);
     
+    // 玩家数据 & 定制
     const [playerState, setPlayerState] = useState<PlayerState>(() => {
-        const saved = localStorage.getItem('neon_race_save');
+        const saved = localStorage.getItem('neon_race_save_v2'); // New version key
         return saved ? JSON.parse(saved) : {
             coins: 100,
             unlockedCars: ['starter_alpha'],
             selectedCarId: 'starter_alpha',
-            highScore: 0
+            highScore: 0,
+            carCustomizations: {}
         };
     });
+
+    // 编辑模式状态
+    const [editingCarId, setEditingCarId] = useState<string | null>(null);
+    const [currentCustomization, setCurrentCustomization] = useState<CustomizationConfig>({ color: '#ffffff', decalId: DecalType.NONE, rimId: RimType.STANDARD });
 
     const [settings, setSettings] = useState<SettingsState>({
         quality: 'HIGH',
@@ -98,7 +163,7 @@ const App = () => {
     }, [gameState]);
 
     useEffect(() => {
-        localStorage.setItem('neon_race_save', JSON.stringify(playerState));
+        localStorage.setItem('neon_race_save_v2', JSON.stringify(playerState));
     }, [playerState]);
 
     const activeCar = CARS.find(c => c.id === playerState.selectedCarId) || CARS[0];
@@ -147,7 +212,7 @@ const App = () => {
 
     const handleHUDUpdate = (state: RacerState) => {
         setCurrentScore(Math.floor(state.distance * 1000));
-        setCurrentSpeed(Math.floor(state.speed));
+        setCurrentSpeed(state.speed); // Keep precise for gauge
         setNitroLevel(state.nitroLevel);
         setCurrentHealth(state.health);
         setCurrentRank(state.rank);
@@ -168,6 +233,30 @@ const App = () => {
     const selectCar = (carId: string) => {
         if (playerState.unlockedCars.includes(carId)) {
             setPlayerState(prev => ({ ...prev, selectedCarId: carId }));
+        }
+    };
+
+    // Customization Logic
+    const enterCustomization = (carId: string) => {
+        const saved = playerState.carCustomizations?.[carId] || { 
+            color: CARS.find(c=>c.id===carId)?.color || '#fff', 
+            decalId: DecalType.NONE, 
+            rimId: RimType.STANDARD 
+        };
+        setCurrentCustomization(saved);
+        setEditingCarId(carId);
+    };
+
+    const saveCustomization = () => {
+        if (editingCarId) {
+            setPlayerState(prev => ({
+                ...prev,
+                carCustomizations: {
+                    ...prev.carCustomizations,
+                    [editingCarId]: currentCustomization
+                }
+            }));
+            setEditingCarId(null);
         }
     };
 
@@ -206,10 +295,29 @@ const App = () => {
                     <SettingsIcon /> 设置
                 </button>
             </div>
-            
             <div className="mt-8 text-cyan-200/60 font-mono text-sm">
                 最高得分: {playerState.highScore}
             </div>
+             {/* Controls Guide Table */}
+             <div className="mt-8 bg-gray-900/80 p-6 rounded-lg border border-gray-700 max-w-lg w-full">
+                <h3 className="text-xl text-cyan-400 font-bold mb-4 font-['Noto_Sans_SC'] text-center border-b border-gray-700 pb-2">操作指南</h3>
+                <table className="w-full text-left text-sm text-gray-300">
+                    <thead>
+                        <tr className="text-gray-500 uppercase text-xs tracking-wider">
+                            <th className="pb-2">按键</th>
+                            <th className="pb-2 text-right">功能</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-800 font-mono">
+                        <tr><td className="py-2"><kbd className="bg-gray-800 px-2 py-1 rounded">W</kbd> / <kbd className="bg-gray-800 px-2 py-1 rounded">↑</kbd></td><td className="py-2 text-right">加速 (Accelerate)</td></tr>
+                        <tr><td className="py-2"><kbd className="bg-gray-800 px-2 py-1 rounded">S</kbd> / <kbd className="bg-gray-800 px-2 py-1 rounded">↓</kbd></td><td className="py-2 text-right">刹车/倒车 (Brake)</td></tr>
+                        <tr><td className="py-2"><kbd className="bg-gray-800 px-2 py-1 rounded">A</kbd> / <kbd className="bg-gray-800 px-2 py-1 rounded">D</kbd></td><td className="py-2 text-right">转向 (Steer)</td></tr>
+                        <tr><td className="py-2"><kbd className="bg-gray-800 px-2 py-1 rounded">Shift</kbd> + 转向</td><td className="py-2 text-right text-yellow-400 font-bold">漂移 (Drift)</td></tr>
+                        <tr><td className="py-2"><kbd className="bg-gray-800 px-2 py-1 rounded">Space</kbd></td><td className="py-2 text-right text-cyan-400 font-bold">氮气加速 (Nitro)</td></tr>
+                        <tr><td className="py-2"><kbd className="bg-gray-800 px-2 py-1 rounded">Esc</kbd></td><td className="py-2 text-right">暂停/退出 (Pause)</td></tr>
+                    </tbody>
+                </table>
+             </div>
         </div>
     );
 
@@ -225,7 +333,18 @@ const App = () => {
                     </div>
                 </div>
                 <div className="mb-6">
-                    <label className="block text-cyan-400 mb-2 font-bold">驾驶灵敏度 ({settings.sensitivity})</label>
+                    <div className="flex justify-between mb-2">
+                        <label className="block text-cyan-400 font-bold">AI 车手数量</label>
+                        <span className="text-white font-mono">5</span>
+                    </div>
+                    <input type="range" min="1" max="10" value={5} disabled className="w-full h-2 bg-gray-700 rounded-lg opacity-50 cursor-not-allowed" />
+                    <div className="text-xs text-gray-500 mt-1">目前固定为5人</div>
+                </div>
+                <div className="mb-6">
+                    <div className="flex justify-between mb-2">
+                        <label className="block text-cyan-400 font-bold">驾驶灵敏度</label>
+                        <span className="text-white font-mono">{settings.sensitivity}%</span>
+                    </div>
                     <input type="range" min="10" max="100" value={settings.sensitivity} onChange={(e) => setSettings(s => ({...s, sensitivity: parseInt(e.target.value)}))} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500" />
                 </div>
                 <button onClick={() => setGameState(GameState.MENU)} className="w-full py-3 bg-gray-600 hover:bg-gray-500 text-white font-bold rounded mt-4">保存并返回</button>
@@ -248,6 +367,21 @@ const App = () => {
                     </button>
                 ))}
              </div>
+             
+             {/* AI Briefing */}
+             <div className="bg-blue-900/20 border-l-4 border-cyan-500 p-6 max-w-2xl w-full mb-8 relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-2 opacity-10">
+                    <svg className="w-24 h-24 text-cyan-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+                </div>
+                <h4 className="text-cyan-400 font-bold mb-2 font-mono flex items-center gap-2">
+                    <span className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse"></span>
+                    AI 战术简报
+                </h4>
+                <p className="text-cyan-100 font-['Noto_Sans_SC'] leading-relaxed min-h-[60px]">
+                    {isBriefingLoading ? <span className="animate-pulse">正在从战术网络下载数据...</span> : (aiBriefing || "请选择赛道以获取战术建议。")}
+                </p>
+             </div>
+
              <div className="flex gap-4">
                 <button onClick={() => setGameState(GameState.MENU)} className="px-6 py-2 border border-red-500 text-red-500 hover:bg-red-900/30 font-bold rounded">返回</button>
                 <button onClick={handleStartGame} className="px-12 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white font-bold text-xl hover:scale-105 transition-transform shadow-[0_0_20px_rgba(16,185,129,0.5)] rounded clip-path-slant">出击</button>
@@ -255,7 +389,72 @@ const App = () => {
         </div>
     );
 
-    const renderShop = () => (
+    const renderShop = () => {
+        if (editingCarId) {
+            // 定制界面
+            return (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900 z-10 p-4">
+                    <h2 className="text-4xl font-bold font-['Noto_Sans_SC'] mb-8">车辆改装中心</h2>
+                    <div className="bg-gray-800 p-8 rounded-xl border border-gray-700 w-full max-w-2xl">
+                        <h3 className="text-2xl text-white mb-6 font-['Orbitron']">PAINT & DECALS</h3>
+                        
+                        {/* 颜色选择 */}
+                        <div className="mb-6">
+                            <label className="block text-gray-400 mb-2">车身涂装 (Paint)</label>
+                            <div className="flex gap-3 flex-wrap">
+                                {['#ffffff', '#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff', '#111111'].map(c => (
+                                    <button 
+                                        key={c} 
+                                        onClick={() => setCurrentCustomization(prev => ({...prev, color: c}))}
+                                        className={`w-10 h-10 rounded-full border-2 ${currentCustomization.color === c ? 'border-white scale-110' : 'border-gray-600'}`}
+                                        style={{ backgroundColor: c }}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* 贴花选择 */}
+                        <div className="mb-6">
+                            <label className="block text-gray-400 mb-2">赛车贴花 (Decal)</label>
+                            <div className="grid grid-cols-4 gap-2">
+                                {Object.values(DECALS).map(decal => (
+                                    <button
+                                        key={decal.id}
+                                        onClick={() => setCurrentCustomization(prev => ({...prev, decalId: decal.id}))}
+                                        className={`p-2 border rounded ${currentCustomization.decalId === decal.id ? 'border-cyan-500 bg-cyan-900/30' : 'border-gray-700 hover:bg-gray-700'}`}
+                                    >
+                                        <div className="text-xs text-center">{decal.name}</div>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* 轮毂选择 */}
+                        <div className="mb-8">
+                            <label className="block text-gray-400 mb-2">轮毂样式 (Rims)</label>
+                            <div className="flex gap-4">
+                                {Object.values(RIMS).map(rim => (
+                                    <button
+                                        key={rim.id}
+                                        onClick={() => setCurrentCustomization(prev => ({...prev, rimId: rim.id}))}
+                                        className={`px-4 py-2 border rounded ${currentCustomization.rimId === rim.id ? 'border-purple-500 bg-purple-900/30' : 'border-gray-700 hover:bg-gray-700'}`}
+                                    >
+                                        {rim.name}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="flex gap-4">
+                            <button onClick={saveCustomization} className="flex-1 py-3 bg-green-600 hover:bg-green-500 text-white font-bold rounded">保存改装</button>
+                            <button onClick={() => setEditingCarId(null)} className="flex-1 py-3 bg-gray-600 hover:bg-gray-500 text-white font-bold rounded">取消</button>
+                        </div>
+                    </div>
+                </div>
+            )
+        }
+
+        return (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900 z-10 p-4">
              <div className="flex justify-between w-full max-w-4xl mb-8 items-center border-b border-gray-700 pb-4">
                 <h2 className="text-4xl font-bold font-['Noto_Sans_SC']">地下车库</h2>
@@ -265,12 +464,23 @@ const App = () => {
                 {CARS.map(car => {
                     const isUnlocked = playerState.unlockedCars.includes(car.id);
                     const isSelected = playerState.selectedCarId === car.id;
+                    const custom = playerState.carCustomizations?.[car.id];
+                    const displayColor = custom?.color || car.color;
+
                     return (
                         <div key={car.id} className={`relative rounded-lg p-4 border transition-all ${isSelected ? 'border-yellow-400 bg-yellow-900/10' : 'border-gray-700 bg-gray-800'}`}>
                             <h3 className="text-2xl font-['Noto_Sans_SC'] mb-1">{car.name}</h3>
                             <div className="w-full h-32 bg-gray-900/50 rounded mb-4 flex items-center justify-center border border-gray-800">
-                                <div className="w-16 h-10 rounded shadow-lg" style={{ backgroundColor: car.color, boxShadow: `0 0 15px ${car.emissive}` }}></div>
+                                <div className="w-16 h-10 rounded shadow-lg" style={{ backgroundColor: displayColor, boxShadow: `0 0 15px ${car.emissive}` }}></div>
                             </div>
+                            
+                            {/* 改装按钮 */}
+                            {isUnlocked && (
+                                <button onClick={() => enterCustomization(car.id)} className="absolute top-4 right-4 text-gray-400 hover:text-white">
+                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                                </button>
+                            )}
+
                             {isUnlocked ? (
                                 <button onClick={() => selectCar(car.id)} disabled={isSelected} className={`w-full py-2 font-bold uppercase tracking-wider rounded ${isSelected ? 'bg-yellow-500 text-black cursor-default' : 'bg-gray-700 hover:bg-gray-600 text-white'}`}>
                                     {isSelected ? '当前驾驶' : '驾驶此车'}
@@ -286,7 +496,8 @@ const App = () => {
              </div>
              <button onClick={() => setGameState(GameState.MENU)} className="mt-8 px-8 py-3 bg-gray-700 hover:bg-gray-600 text-white font-bold rounded">返回主菜单</button>
         </div>
-    );
+        );
+    };
 
     const renderGameOver = () => (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/90 z-20 backdrop-blur-md">
@@ -316,19 +527,24 @@ const App = () => {
 
     const renderHUD = () => (
         <div className="absolute inset-0 pointer-events-none z-10 flex flex-col justify-between p-6">
+            {/* 伤害红屏特效 */}
+            {currentHealth < 30 && (
+                <div className="absolute inset-0 bg-red-500/20 mix-blend-overlay animate-pulse pointer-events-none z-0"></div>
+            )}
+
             {/* 顶部信息栏 */}
-            <div className="flex justify-between items-start">
+            <div className="flex justify-between items-start z-10">
                 <div className="flex gap-4">
-                    <div className="bg-black/40 backdrop-blur px-6 py-3 border-l-4 border-cyan-500 skew-x-[-10deg]">
+                    <div className="bg-black/60 backdrop-blur px-6 py-3 border-l-4 border-cyan-500 skew-x-[-10deg]">
                         <div className="text-xs text-cyan-400 font-bold tracking-widest skew-x-[10deg]">圈数 LAP</div>
-                        <div className="text-4xl font-mono font-bold text-white skew-x-[10deg]">{currentLap} <span className="text-sm text-gray-400">/ 3</span></div>
+                        <div className="text-4xl font-mono font-bold text-white skew-x-[10deg]">{currentLap} <span className="text-sm text-gray-400">/ 2</span></div>
                     </div>
-                    <div className="bg-black/40 backdrop-blur px-6 py-3 border-l-4 border-purple-500 skew-x-[-10deg]">
+                    <div className="bg-black/60 backdrop-blur px-6 py-3 border-l-4 border-purple-500 skew-x-[-10deg]">
                         <div className="text-xs text-purple-400 font-bold tracking-widest skew-x-[10deg]">排名 POS</div>
                         <div className="text-4xl font-mono font-bold text-white skew-x-[10deg]">{currentRank} <span className="text-sm text-gray-400">/ 6</span></div>
                     </div>
                 </div>
-                <div className="bg-black/40 backdrop-blur px-6 py-3 border-r-4 border-yellow-500 skew-x-[10deg]">
+                <div className="bg-black/60 backdrop-blur px-6 py-3 border-r-4 border-yellow-500 skew-x-[10deg]">
                     <div className="text-xs text-yellow-400 font-bold tracking-widest skew-x-[-10deg] text-right">信用点</div>
                     <div className="text-2xl font-mono font-bold text-white skew-x-[-10deg] text-right flex items-center justify-end gap-2">
                         <CoinIcon /> {playerState.coins}
@@ -346,25 +562,40 @@ const App = () => {
             )}
 
             {/* 底部仪表盘 */}
-            <div className="self-center flex flex-col items-center gap-2 mb-8 w-full max-w-lg">
-                 {/* 耐久度条 */}
-                 <div className="w-full h-2 bg-gray-800 rounded-full overflow-hidden border border-gray-600 relative skew-x-[-10deg] mb-2">
-                     <div className={`h-full transition-all duration-300 ${currentHealth < 30 ? 'bg-red-600' : 'bg-green-500'}`} style={{ width: `${(currentHealth / activeCar.maxHealth) * 100}%` }} />
+            <div className="flex items-end justify-between w-full px-8 pb-4 z-10">
+                 {/* 左侧：耐久度 */}
+                 <div className="w-64">
+                     <div className="text-xs text-gray-400 font-bold mb-1 tracking-widest">VEHICLE HEALTH</div>
+                     <div className="w-full h-4 bg-gray-800 rounded skew-x-[-20deg] overflow-hidden border border-gray-600">
+                         <div 
+                            className={`h-full transition-all duration-300 ${currentHealth < 30 ? 'bg-red-600 animate-pulse' : 'bg-green-500'}`} 
+                            style={{ width: `${(currentHealth / activeCar.maxHealth) * 100}%` }} 
+                         />
+                     </div>
+                     <div className="text-right text-xs text-gray-500 mt-1 font-mono">{Math.floor(currentHealth)} / {activeCar.maxHealth}</div>
+                 </div>
+
+                 {/* 中间：速度表 */}
+                 <div className="relative bottom-0">
+                    <SpeedGauge speed={currentSpeed} />
                  </div>
                  
-                 <div className="flex items-end gap-2">
-                    <span className="text-7xl font-black italic font-['Orbitron'] text-white drop-shadow-md">{currentSpeed}</span>
-                    <span className="text-xl text-cyan-500 font-bold mb-3">KM/H</span>
-                 </div>
-                 
-                 {/* 氮气条 */}
-                 <div className="w-80 h-4 bg-gray-900 rounded-full overflow-hidden border border-gray-600 relative skew-x-[-20deg]">
-                     <div 
-                        className="h-full bg-gradient-to-r from-blue-600 via-cyan-400 to-white transition-all duration-100 box-shadow-[0_0_10px_#00ffff]"
-                        style={{ width: `${nitroLevel}%` }}
-                     />
-                     <div className="absolute inset-0 flex items-center justify-center text-[10px] font-bold tracking-widest text-white/90 skew-x-[20deg]">
+                 {/* 右侧：氮气条 (Segmented) */}
+                 <div className="w-64 flex flex-col items-end">
+                     <div className={`text-xs font-bold mb-1 tracking-widest transition-colors ${nitroLevel > 95 ? 'text-cyan-300 drop-shadow-glow' : 'text-gray-400'}`}>
                          NITRO BOOST
+                     </div>
+                     <div className="flex gap-1 w-full skew-x-[-20deg]">
+                         {[...Array(10)].map((_, i) => (
+                             <div 
+                                key={i} 
+                                className={`h-6 flex-1 border border-gray-700 transition-all ${
+                                    i < (nitroLevel / 10) 
+                                        ? (nitroLevel > 95 ? 'bg-white shadow-[0_0_10px_#fff]' : 'bg-cyan-500') 
+                                        : 'bg-gray-900'
+                                }`}
+                             />
+                         ))}
                      </div>
                  </div>
             </div>
@@ -378,6 +609,7 @@ const App = () => {
                    <GameScene 
                         trackConfig={activeTrackConfig} 
                         carConfig={activeCar} 
+                        playerCustomization={playerState.carCustomizations?.[playerState.selectedCarId]}
                         onGameOver={handleGameOver}
                         onScoreUpdate={handleHUDUpdate}
                         onCountdown={handleCountdown}
