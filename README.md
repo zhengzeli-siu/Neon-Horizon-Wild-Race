@@ -1,7 +1,7 @@
 
 # 霓虹地平线：狂野飙车 3D (Neon Horizon: Wild Race)
 
-[![在线试玩](https://img.shields.io/badge/🎮%20在线试玩-点击立即开始-00ffff?style=for-the-badge&logo=google-chrome&logoColor=white)]([请在此处替换您的部署链接])
+[![在线试玩](https://siu-phi.vercel.app)]([请在此处替换您的部署链接])
 
 > **注意**：如果您是仓库拥有者，请先将本项目部署到 Vercel 或 GitHub Pages，然后将生成的网址填入上方链接中。
 
