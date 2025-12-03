@@ -4,7 +4,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { EffectComposer, Bloom, ChromaticAberration, Scanline, Vignette, Noise } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { TrackConfig, CarStats, RacerState, WeatherType, BiomeType, Particle, SkidMarkData, RaceStatus, CollisionType } from '../types';
-import { generateTrackPath, createRoadTexture, createBuildingTexture, createStartFinishTexture, createTunnelTexture, getTerrainHeight, LANE_WIDTH, TRACK_WIDTH, FULL_WIDTH, SHOULDER_WIDTH } from '../constants';
+import { generateTrackPath, getTrackFeatures, TrackFeature, createRoadTexture, createBuildingTexture, createStartFinishTexture, createTunnelTexture, getTerrainHeight, LANE_WIDTH, TRACK_WIDTH, FULL_WIDTH, SHOULDER_WIDTH } from '../constants';
 
 // --- 全局纹理 ---
 const roadTexture = createRoadTexture();
@@ -14,7 +14,6 @@ const tunnelTexture = createTunnelTexture();
 
 // --- 高性能实例组件 ---
 
-// 使用 InstancedMesh 渲染胎痕
 const InstancedSkidMarks = React.forwardRef<{ addMark: (pos: THREE.Vector3, rot: THREE.Euler) => void }>((_, ref) => {
     const meshRef = useRef<THREE.InstancedMesh>(null);
     const count = 1000;
@@ -42,8 +41,8 @@ const InstancedSkidMarks = React.forwardRef<{ addMark: (pos: THREE.Vector3, rot:
 
     return (
         <instancedMesh ref={meshRef} args={[undefined, undefined, count]} frustumCulled={false}>
-            <planeGeometry args={[0.6, 0.6]} />
-            <meshBasicMaterial color="#111" transparent opacity={0.6} depthWrite={false} polygonOffset polygonOffsetFactor={-1} />
+            <planeGeometry args={[0.8, 0.8]} />
+            <meshBasicMaterial color="#111" transparent opacity={0.5} depthWrite={false} polygonOffset polygonOffsetFactor={-1} />
         </instancedMesh>
     );
 });
@@ -52,30 +51,30 @@ const InstancedSkidMarks = React.forwardRef<{ addMark: (pos: THREE.Vector3, rot:
 
 const SpeedLines = ({ speed }: { speed: number }) => {
     const ref = useRef<THREE.Group>(null);
-    const count = 50;
+    const count = 40;
     
     const lines = useMemo(() => {
         return new Array(count).fill(0).map(() => ({
-            x: (Math.random() - 0.5) * 50,
-            y: (Math.random() - 0.5) * 40,
+            x: (Math.random() - 0.5) * 60,
+            y: (Math.random() - 0.5) * 50,
             z: Math.random() * 20,
-            len: 5 + Math.random() * 10,
+            len: 8 + Math.random() * 12,
             speed: 1.5 + Math.random()
         }));
     }, []);
 
     useFrame((_, delta) => {
         if (!ref.current) return;
-        ref.current.visible = speed > 100;
-        if (speed <= 100) return;
+        ref.current.visible = speed > 120;
+        if (speed <= 120) return;
 
         ref.current.children.forEach((mesh, i) => {
             const line = lines[i];
-            mesh.position.z -= line.speed * (speed * 1.0) * delta;
+            mesh.position.z -= line.speed * (speed * 0.8) * delta;
             if (mesh.position.z < -10) {
-                mesh.position.z = 40 + Math.random() * 20;
-                mesh.position.x = (Math.random() - 0.5) * 50;
-                mesh.position.y = (Math.random() - 0.5) * 40;
+                mesh.position.z = 50 + Math.random() * 30;
+                mesh.position.x = (Math.random() - 0.5) * 60;
+                mesh.position.y = (Math.random() - 0.5) * 50;
             }
         });
     });
@@ -84,22 +83,21 @@ const SpeedLines = ({ speed }: { speed: number }) => {
         <group ref={ref}>
             {lines.map((l, i) => (
                 <mesh key={i} position={[l.x, l.y, l.z]}>
-                    <boxGeometry args={[0.08, 0.08, l.len]} />
-                    <meshBasicMaterial color="#ffffff" transparent opacity={0.4} />
+                    <boxGeometry args={[0.1, 0.1, l.len]} />
+                    <meshBasicMaterial color="#ffffff" transparent opacity={0.3} />
                 </mesh>
             ))}
         </group>
     );
 };
 
-// 分层远景背景
 const BackgroundLayers = ({ config }: { config: TrackConfig }) => {
     const mountainGeo = useMemo(() => {
-        const geo = new THREE.CylinderGeometry(500, 500, 200, 32, 1, true);
+        const geo = new THREE.CylinderGeometry(600, 600, 200, 32, 1, true);
         const pos = geo.attributes.position;
         for (let i=0; i<pos.count; i++) {
              if (pos.getY(i) > 0) {
-                 pos.setY(i, 40 + Math.random() * 100); 
+                 pos.setY(i, 50 + Math.random() * 100); 
              } else {
                  pos.setY(i, -100);
              }
@@ -110,24 +108,21 @@ const BackgroundLayers = ({ config }: { config: TrackConfig }) => {
 
     return (
         <group>
-            {/* 天空 */}
             <mesh scale={[900, 900, 900]} position={[0, 0, 0]}>
                  <sphereGeometry args={[1, 32, 16]} />
                  <meshBasicMaterial color={config.skyColor} side={THREE.BackSide} />
             </mesh>
-            {/* 远景轮廓 */}
-            <mesh geometry={mountainGeo} position={[0, -50, 0]}>
-                 <meshBasicMaterial color={config.fogColor} side={THREE.BackSide} transparent opacity={0.9} />
+            <mesh geometry={mountainGeo} position={[0, -80, 0]}>
+                 <meshBasicMaterial color={config.fogColor} side={THREE.BackSide} transparent opacity={0.8} />
             </mesh>
         </group>
     );
 };
 
-// 地形 Mesh
 const TerrainMesh = ({ config }: { config: TrackConfig }) => {
     const geometry = useMemo(() => {
-        const size = 1200;
-        const segs = 128;
+        const size = 1500;
+        const segs = 64; 
         const geo = new THREE.PlaneGeometry(size, size, segs, segs);
         const posAttribute = geo.attributes.position;
         
@@ -135,9 +130,7 @@ const TerrainMesh = ({ config }: { config: TrackConfig }) => {
             const x = posAttribute.getX(i);
             const y = posAttribute.getY(i); 
             const height = getTerrainHeight(x, -y, config.id); 
-            // Terrain slightly below where track would be to avoid z-fighting on flat areas,
-            // but track mesh foundation will cover gaps.
-            posAttribute.setZ(i, height - 5); 
+            posAttribute.setZ(i, height - 15); // Lower slightly more to avoid clipping foundation
         }
         
         geo.computeVertexNormals();
@@ -154,13 +147,13 @@ const TerrainMesh = ({ config }: { config: TrackConfig }) => {
 
 // --- Scenery System ---
 
-// Generic Layer for Props
 const SceneryLayer = ({ 
     geometry, 
     material, 
     count, 
     curve, 
     config, 
+    features,
     placementFn 
 }: { 
     geometry: THREE.BufferGeometry, 
@@ -168,24 +161,36 @@ const SceneryLayer = ({
     count: number, 
     curve: THREE.CatmullRomCurve3, 
     config: TrackConfig,
-    placementFn: (i: number, point: THREE.Vector3, binormal: THREE.Vector3, tangent: THREE.Vector3) => { pos: THREE.Vector3, rot: THREE.Euler, scale: THREE.Vector3 } | null
+    features: TrackFeature[],
+    placementFn: (i: number, point: THREE.Vector3, binormal: THREE.Vector3) => { pos: THREE.Vector3, rot: THREE.Euler, scale: THREE.Vector3 } | null
 }) => {
     const meshRef = useRef<THREE.InstancedMesh>(null);
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         if (!meshRef.current) return;
         const tempObj = new THREE.Object3D();
         let validCount = 0;
 
         for (let i = 0; i < count; i++) {
             const t = Math.random();
+            
+            // Strictly ban scenery on track features (Tunnels/Jumps) to avoid clipping
+            const inTunnelOrJump = features.some(f => (f.type === 'TUNNEL' || f.type === 'JUMP') && t >= f.start - 0.05 && t <= f.end + 0.05);
+            if (inTunnelOrJump) continue;
+
             const point = curve.getPointAt(t);
             const tangent = curve.getTangentAt(t).normalize();
             const up = new THREE.Vector3(0, 1, 0);
             const binormal = new THREE.Vector3().crossVectors(tangent, up).normalize();
 
-            const result = placementFn(i, point, binormal, tangent);
+            const result = placementFn(i, point, binormal);
             if (result) {
+                // IMPORTANT: Ensure objects spawn far enough from the track center
+                // Use a minimum distance (e.g., 25 units) to clear road + shoulders + safety margin
+                const MIN_DIST = 25;
+                const distToTrack = result.pos.distanceTo(point);
+                if (distToTrack < MIN_DIST) continue; 
+
                 tempObj.position.copy(result.pos);
                 tempObj.rotation.copy(result.rot);
                 tempObj.scale.copy(result.scale);
@@ -195,24 +200,22 @@ const SceneryLayer = ({
         }
         meshRef.current.count = validCount;
         meshRef.current.instanceMatrix.needsUpdate = true;
-    }, [config, curve, count, placementFn]);
+    }, [config, curve, count, placementFn, features]);
 
-    return <instancedMesh ref={meshRef} args={[geometry, material, count]} castShadow receiveShadow />;
+    return <instancedMesh ref={meshRef} args={[geometry, material, count]} castShadow receiveShadow frustumCulled={true} />;
 };
 
-// Dynamic Traffic for City
 const TrafficSystem = ({ curve }: { curve: THREE.CatmullRomCurve3 }) => {
     const meshRef = useRef<THREE.InstancedMesh>(null);
-    const count = 100;
+    const count = 60; // Reduced traffic for performance
     const dummy = useMemo(() => new THREE.Object3D(), []);
     
-    // Store state for each car: current t, speed, lane offset, height offset
     const cars = useMemo(() => {
         return Array.from({ length: count }).map(() => ({
             t: Math.random(),
-            speed: 0.1 + Math.random() * 0.2, // relative speed
-            offset: (Math.random() > 0.5 ? 1 : -1) * (20 + Math.random() * 40),
-            height: 15 + Math.random() * 40,
+            speed: 0.1 + Math.random() * 0.1, 
+            offset: (Math.random() > 0.5 ? 1 : -1) * (30 + Math.random() * 40),
+            height: 20 + Math.random() * 30,
             color: new THREE.Color().setHSL(Math.random(), 1, 0.5)
         }));
     }, []);
@@ -250,84 +253,74 @@ const TrafficSystem = ({ curve }: { curve: THREE.CatmullRomCurve3 }) => {
     );
 };
 
-// Street Lights for City
-const StreetLightSystem = ({ curve }: { curve: THREE.CatmullRomCurve3 }) => {
+const StreetLightSystem = ({ curve, features }: { curve: THREE.CatmullRomCurve3, features: TrackFeature[] }) => {
     const meshRef = useRef<THREE.InstancedMesh>(null);
-    const count = 150; // Every ~1% of track
+    const count = 120; 
     const dummy = useMemo(() => new THREE.Object3D(), []);
 
     useEffect(() => {
         if (!meshRef.current) return;
         
+        let valid = 0;
         for (let i = 0; i < count; i++) {
             const t = i / count;
+            if (features.some(f => f.type === 'TUNNEL' && t >= f.start && t <= f.end)) continue;
+
             const point = curve.getPointAt(t);
             const tangent = curve.getTangentAt(t).normalize();
             const up = new THREE.Vector3(0, 1, 0);
             const binormal = new THREE.Vector3().crossVectors(tangent, up).normalize();
             
-            // Place on both sides
             const side = i % 2 === 0 ? 1 : -1;
-            const pos = point.clone().add(binormal.multiplyScalar(side * 12)); // Just outside track
+            // Increased distance for streetlights
+            const pos = point.clone().add(binormal.multiplyScalar(side * 20)); 
             
-            // Snap to terrain if needed, but for city we assume flat-ish or elevated
             const h = getTerrainHeight(pos.x, pos.z, BiomeType.CITY);
-            pos.y = Math.max(pos.y, h);
+            pos.y = Math.max(pos.y, h - 5); 
 
             dummy.position.copy(pos);
             dummy.rotation.set(0, 0, 0);
             dummy.scale.set(1, 1, 1);
             dummy.updateMatrix();
             
-            meshRef.current.setMatrixAt(i, dummy.matrix);
+            meshRef.current.setMatrixAt(valid++, dummy.matrix);
         }
+        meshRef.current.count = valid;
         meshRef.current.instanceMatrix.needsUpdate = true;
-    }, [curve]);
+    }, [curve, features]);
 
     return (
         <instancedMesh ref={meshRef} args={[undefined, undefined, count]}>
             <cylinderGeometry args={[0.2, 0.2, 15, 8]} />
-            <meshStandardMaterial color="#555" emissive="#00ffff" emissiveIntensity={2} />
+            <meshStandardMaterial color="#333" emissive="#00ffff" emissiveIntensity={1} />
         </instancedMesh>
     );
 };
 
-// Main Biome Environment Controller
-const BiomeEnvironment = ({ config, curve }: { config: TrackConfig, curve: THREE.CatmullRomCurve3 }) => {
+const BiomeEnvironment = ({ config, curve, features }: { config: TrackConfig, curve: THREE.CatmullRomCurve3, features: TrackFeature[] }) => {
     
-    // Geometries & Materials
-    const buildingGeo = useMemo(() => new THREE.BoxGeometry(10, 60, 10), []);
+    const buildingGeo = useMemo(() => new THREE.BoxGeometry(15, 80, 15), []);
     const buildingMat = useMemo(() => new THREE.MeshStandardMaterial({ 
-        map: buildingTexture, color: '#888', emissive: config.gridColor, emissiveIntensity: 0.3 
+        map: buildingTexture, color: '#666', emissive: config.gridColor, emissiveIntensity: 0.2 
     }), [config.gridColor]);
 
-    const treeGeo = useMemo(() => new THREE.ConeGeometry(4, 18, 8), []);
-    const treeMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#2d4c1e', roughness: 0.8 }), []);
+    const treeGeo = useMemo(() => new THREE.ConeGeometry(5, 25, 8), []);
+    const treeMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#1a3311', roughness: 0.9 }), []);
 
-    const rockGeo = useMemo(() => new THREE.DodecahedronGeometry(5), []);
-    const rockMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#7a5230', roughness: 0.9 }), []);
+    const rockGeo = useMemo(() => new THREE.DodecahedronGeometry(6), []);
+    const rockMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#554433', roughness: 1.0 }), []);
 
-    const crystalGeo = useMemo(() => new THREE.OctahedronGeometry(4), []);
-    const crystalMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#aaddff', metalness: 0.8, roughness: 0.1, emissive: '#004488', emissiveIntensity: 0.2 }), []);
-    
-    const cactusGeo = useMemo(() => new THREE.CylinderGeometry(0.8, 0.8, 8, 6), []);
-    const cactusMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#446622' }), []);
-
-    const billboardGeo = useMemo(() => new THREE.PlaneGeometry(12, 6), []);
-    const billboardMat = useMemo(() => new THREE.MeshBasicMaterial({ color: '#ff00ff', side: THREE.DoubleSide }), []);
-
-    // Placement Logics
     const scatterPlacement = (distBase: number, distVar: number, scaleVar: number) => 
         (i: number, point: THREE.Vector3, binormal: THREE.Vector3) => {
             const side = Math.random() > 0.5 ? 1 : -1;
-            const dist = distBase + Math.random() * distVar;
+            // INCREASED SAFE DISTANCE SIGNIFICANTLY
+            const dist = (distBase + 35) + Math.random() * distVar; 
             const pos = point.clone().add(binormal.multiplyScalar(dist * side));
             const h = getTerrainHeight(pos.x, pos.z, config.id);
             pos.y = h;
             
-            // Adjust height offset based on biome
-            if (config.id === BiomeType.CITY) pos.y += 30; // Buildings sit deep
-            else if (config.id === BiomeType.SNOW) pos.y += 9; // Tree pivot
+            if (config.id === BiomeType.CITY) pos.y += 40; 
+            else if (config.id === BiomeType.SNOW) pos.y += 12; 
             else pos.y += 0;
 
             const rot = new THREE.Euler(0, Math.random() * Math.PI * 2, 0);
@@ -335,29 +328,31 @@ const BiomeEnvironment = ({ config, curve }: { config: TrackConfig, curve: THREE
             return { pos, rot, scale: new THREE.Vector3(s, s, s) };
         };
     
-    const billboardPlacement = (i: number, point: THREE.Vector3, binormal: THREE.Vector3) => {
-        if (Math.random() > 0.1) return null; // Sparse billboards
+    // ... city billboard logic ...
+     const billboardGeo = useMemo(() => new THREE.PlaneGeometry(16, 8), []);
+     const billboardMat = useMemo(() => new THREE.MeshBasicMaterial({ color: '#ff00ff', side: THREE.DoubleSide }), []);
+     const billboardPlacement = (i: number, point: THREE.Vector3, binormal: THREE.Vector3) => {
+        if (Math.random() > 0.15) return null; 
         const side = Math.random() > 0.5 ? 1 : -1;
-        const dist = 30 + Math.random() * 20;
+        const dist = 50 + Math.random() * 30; // Further back
         const pos = point.clone().add(binormal.multiplyScalar(dist * side));
-        pos.y = getTerrainHeight(pos.x, pos.z, config.id) + 30 + Math.random() * 20; // Floating high
-        
+        pos.y = getTerrainHeight(pos.x, pos.z, config.id) + 40 + Math.random() * 20; 
         const rot = new THREE.Euler(0, Math.atan2(point.x - pos.x, point.z - pos.z), 0);
-        return { pos, rot, scale: new THREE.Vector3(1 + Math.random(), 1 + Math.random(), 1) };
+        return { pos, rot, scale: new THREE.Vector3(1, 1, 1) };
     };
 
     if (config.id === BiomeType.CITY) {
         return (
             <>
                 <SceneryLayer 
-                    geometry={buildingGeo} material={buildingMat} count={600} curve={curve} config={config}
-                    placementFn={scatterPlacement(25, 80, 2)}
+                    geometry={buildingGeo} material={buildingMat} count={400} curve={curve} config={config} features={features}
+                    placementFn={scatterPlacement(40, 100, 2)}
                 />
                 <SceneryLayer 
-                    geometry={billboardGeo} material={billboardMat} count={50} curve={curve} config={config}
+                    geometry={billboardGeo} material={billboardMat} count={40} curve={curve} config={config} features={features}
                     placementFn={billboardPlacement}
                 />
-                <StreetLightSystem curve={curve} />
+                <StreetLightSystem curve={curve} features={features} />
                 <TrafficSystem curve={curve} />
             </>
         );
@@ -365,43 +360,30 @@ const BiomeEnvironment = ({ config, curve }: { config: TrackConfig, curve: THREE
 
     if (config.id === BiomeType.SNOW) {
         return (
-            <>
-                <SceneryLayer 
-                    geometry={treeGeo} material={treeMat} count={500} curve={curve} config={config}
-                    placementFn={scatterPlacement(20, 60, 1.5)}
-                />
-                <SceneryLayer 
-                    geometry={crystalGeo} material={crystalMat} count={100} curve={curve} config={config}
-                    placementFn={scatterPlacement(15, 30, 1)}
-                />
-            </>
+            <SceneryLayer 
+                geometry={treeGeo} material={treeMat} count={400} curve={curve} config={config} features={features}
+                placementFn={scatterPlacement(30, 80, 1.5)}
+            />
         );
     }
 
-    // Desert (Default)
     return (
-        <>
-            <SceneryLayer 
-                geometry={rockGeo} material={rockMat} count={300} curve={curve} config={config}
-                placementFn={scatterPlacement(20, 100, 2)}
-            />
-            <SceneryLayer 
-                geometry={cactusGeo} material={cactusMat} count={200} curve={curve} config={config}
-                placementFn={scatterPlacement(15, 40, 0.5)}
-            />
-        </>
+        <SceneryLayer 
+            geometry={rockGeo} material={rockMat} count={250} curve={curve} config={config} features={features}
+            placementFn={scatterPlacement(30, 110, 2)}
+        />
     );
 };
 
-// --- 定制赛道 Mesh 生成 (包含路肩、护栏和基座) ---
+// --- Track Mesh ---
 const TrackMesh = ({ curve, config }: { curve: THREE.CatmullRomCurve3, config: TrackConfig }) => {
     const geometry = useMemo(() => {
-        const steps = 800; // Match path generation steps or higher
+        const steps = 400; // Optimized
         const roadHalfW = TRACK_WIDTH / 2;
         const fullHalfW = FULL_WIDTH / 2;
         const wallHeight = 1.2;
         const wallThick = 0.5;
-        const foundationDepth = 50; // Depth of the skirt into the ground
+        const foundationDepth = 80; // Deeper foundation
 
         const vertices: number[] = [];
         const uvs: number[] = [];
@@ -409,84 +391,68 @@ const TrackMesh = ({ curve, config }: { curve: THREE.CatmullRomCurve3, config: T
         const normals: number[] = [];
 
         for (let i = 0; i <= steps; i++) {
+            // FIX: Ensure t loops perfectly from 0 to 1
+            // When i = steps, t = 1. We treat t=1 exactly as t=0 geometry to close the loop without seams.
             const t = i / steps;
-            const pt = curve.getPointAt(t % 1); 
-            const tan = curve.getTangentAt(t % 1).normalize();
+            const tSample = t >= 1 ? 0 : t; // Loop back for sampling
+            const pt = curve.getPointAt(tSample); 
+            const tan = curve.getTangentAt(tSample).normalize();
             const up = new THREE.Vector3(0, 1, 0);
             const binormal = new THREE.Vector3().crossVectors(tan, up).normalize();
             
-            // Calculate positions
+            // Generate profile points
             const P = (offset: number, yOff: number = 0) => 
                 pt.clone().add(binormal.clone().multiplyScalar(offset)).add(new THREE.Vector3(0, yOff, 0));
 
-            // Foundation (Deep skirt)
+            // Profile Shape
             const p_found_l = P(-(fullHalfW + wallThick), -foundationDepth);
-            const p_found_r = P(fullHalfW + wallThick, -foundationDepth);
-
-            // Walls & Road
             const p_wall_l_out = P(-(fullHalfW + wallThick));
             const p_wall_l_out_top = P(-(fullHalfW + wallThick), wallHeight);
             const p_wall_l_in_top = P(-fullHalfW, wallHeight);
             const p_shoulder_l = P(-fullHalfW);
-            
             const p_road_l = P(-roadHalfW);
             const p_road_r = P(roadHalfW);
-            
             const p_shoulder_r = P(fullHalfW);
             const p_wall_r_in_top = P(fullHalfW, wallHeight);
             const p_wall_r_out_top = P(fullHalfW + wallThick, wallHeight);
             const p_wall_r_out = P(fullHalfW + wallThick);
+            const p_found_r = P(fullHalfW + wallThick, -foundationDepth);
 
-            // Push vertices for this slice
             const pushV = (v: THREE.Vector3) => vertices.push(v.x, v.y, v.z);
             
-            // 0: Left Foundation
-            pushV(p_found_l);
-            // 1: Left Wall Out Bottom
-            pushV(p_wall_l_out); 
-            // 2: Left Wall Out Top
-            pushV(p_wall_l_out_top); 
-            // 3: Left Wall In Top
-            pushV(p_wall_l_in_top); 
-            // 4: Left Shoulder Start
-            pushV(p_shoulder_l); 
-            // 5: Road Left
-            pushV(p_road_l); 
-            // 6: Road Right
-            pushV(p_road_r); 
-            // 7: Right Shoulder End
-            pushV(p_shoulder_r); 
-            // 8: Right Wall In Top
-            pushV(p_wall_r_in_top); 
-            // 9: Right Wall Out Top
-            pushV(p_wall_r_out_top); 
-            // 10: Right Wall Out Bottom
-            pushV(p_wall_r_out);
-            // 11: Right Foundation
-            pushV(p_found_r);
+            pushV(p_found_l); // 0
+            pushV(p_wall_l_out); // 1
+            pushV(p_wall_l_out_top); // 2
+            pushV(p_wall_l_in_top); // 3
+            pushV(p_shoulder_l); // 4
+            pushV(p_road_l); // 5
+            pushV(p_road_r); // 6
+            pushV(p_shoulder_r); // 7
+            pushV(p_wall_r_in_top); // 8
+            pushV(p_wall_r_out_top); // 9
+            pushV(p_wall_r_out); // 10
+            pushV(p_found_r); // 11
 
-            // UVs
-            const repeat = 80;
+            const repeat = 60;
             const vCoord = t * repeat;
             
-            uvs.push(0, vCoord); // 0
-            uvs.push(0, vCoord); // 1
-            uvs.push(0, vCoord); // 2
-            uvs.push(0, vCoord); // 3 
-            uvs.push(0.0, vCoord); // 4 (Shoulder Start)
-            uvs.push(0.125, vCoord); // 5 (Road Start)
-            uvs.push(0.875, vCoord); // 6 (Road End)
-            uvs.push(1.0, vCoord); // 7 (Shoulder End)
-            uvs.push(1, vCoord); // 8
-            uvs.push(1, vCoord); // 9
-            uvs.push(1, vCoord); // 10
-            uvs.push(1, vCoord); // 11
+            // UV Mapping
+            uvs.push(0, vCoord); // Found L
+            uvs.push(0, vCoord); // Wall L Out
+            uvs.push(0, vCoord); 
+            uvs.push(0, vCoord); 
+            uvs.push(0.0, vCoord); // Shoulder L Start
+            uvs.push(0.12, vCoord); // Road L
+            uvs.push(0.88, vCoord); // Road R
+            uvs.push(1.0, vCoord); // Shoulder R End
+            uvs.push(1, vCoord); 
+            uvs.push(1, vCoord); 
+            uvs.push(1, vCoord); 
+            uvs.push(1, vCoord);
 
-            // Normals placeholder (computed later)
             for(let k=0; k<12; k++) normals.push(0, 1, 0);
         }
 
-        // Indices
         const stride = 12;
         for (let i = 0; i < steps; i++) {
             const b = i * stride;
@@ -497,29 +463,16 @@ const TrackMesh = ({ curve, config }: { curve: THREE.CatmullRomCurve3, config: T
                 indices.push(n + i1, n + i2, b + i2);
             };
 
-            // Foundation Skirts
-            addQuad(0, 1); // Left Found
-            
-            // Left Wall
+            addQuad(0, 1); 
             addQuad(1, 2);
             addQuad(2, 3);
             addQuad(3, 4);
-            
-            // Left Shoulder
             addQuad(4, 5);
-            
-            // Main Road
             addQuad(5, 6);
-            
-            // Right Shoulder
             addQuad(6, 7);
-            
-            // Right Wall
             addQuad(7, 8);
             addQuad(8, 9);
             addQuad(9, 10);
-
-            // Right Foundation
             addQuad(10, 11);
         }
 
@@ -528,6 +481,7 @@ const TrackMesh = ({ curve, config }: { curve: THREE.CatmullRomCurve3, config: T
         geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
         geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
         geo.setIndex(indices);
+        
         geo.computeVertexNormals();
         return geo;
     }, [curve]);
@@ -537,13 +491,12 @@ const TrackMesh = ({ curve, config }: { curve: THREE.CatmullRomCurve3, config: T
             <mesh geometry={geometry} receiveShadow castShadow>
                 <meshStandardMaterial 
                     map={roadTexture}
-                    color="#aaa"
-                    roughness={0.8}
-                    metalness={0.1}
+                    color="#bbb"
+                    roughness={0.7}
+                    metalness={0.2}
                     side={THREE.DoubleSide}
                 />
             </mesh>
-            {/* 护栏发光条 */}
             <mesh geometry={geometry} position={[0, 0.05, 0]}>
                 <meshBasicMaterial 
                     color={config.gridColor} 
@@ -557,94 +510,102 @@ const TrackMesh = ({ curve, config }: { curve: THREE.CatmullRomCurve3, config: T
 };
 
 // --- Tunnel Mesh ---
-const TunnelMesh = ({ curve, config }: { curve: THREE.CatmullRomCurve3, config: TrackConfig }) => {
-    const geometry = useMemo(() => {
-        // Defines the Tunnel Segment range (must match generateTrackPath)
-        const tStart = 0.65;
-        const tEnd = 0.78;
-        const steps = 50;
-        
-        const vertices: number[] = [];
-        const uvs: number[] = [];
-        const indices: number[] = [];
-        
-        const radius = 18; // Wider tunnel
-        const radialSegs = 16;
+const TunnelMesh = ({ curve, config, features }: { curve: THREE.CatmullRomCurve3, config: TrackConfig, features: TrackFeature[] }) => {
+    const tunnelSegments = useMemo(() => features.filter(f => f.type === 'TUNNEL'), [features]);
 
-        for (let i = 0; i <= steps; i++) {
-            const t = tStart + (tEnd - tStart) * (i / steps);
-            const pt = curve.getPointAt(t);
-            const tan = curve.getTangentAt(t).normalize();
-            const up = new THREE.Vector3(0, 1, 0);
-            const binormal = new THREE.Vector3().crossVectors(tan, up).normalize();
-            const correctedUp = new THREE.Vector3().crossVectors(binormal, tan).normalize();
+    const geometries = useMemo(() => {
+        return tunnelSegments.map(feature => {
+            const tStart = feature.start;
+            const tEnd = feature.end;
+            const steps = 30; 
+            
+            const vertices: number[] = [];
+            const uvs: number[] = [];
+            const indices: number[] = [];
+            
+            const radius = 22; // Wider Tunnel
+            const radialSegs = 12;
 
-            // Ring (Arch)
-            for (let j = 0; j <= radialSegs; j++) {
-                const angle = (j / radialSegs) * Math.PI; // 0 to PI
-                const cos = Math.cos(angle);
-                const sin = Math.sin(angle);
-                
-                // Position: centered on track
-                const pos = pt.clone()
-                    .add(binormal.clone().multiplyScalar(cos * radius))
-                    .add(correctedUp.clone().multiplyScalar(sin * radius));
-                
-                vertices.push(pos.x, pos.y, pos.z);
-                uvs.push(i / steps * 5, j / radialSegs);
+            for (let i = 0; i <= steps; i++) {
+                const t = tStart + (tEnd - tStart) * (i / steps);
+                const pt = curve.getPointAt(t % 1); // Ensure wrap safe
+                const tan = curve.getTangentAt(t % 1).normalize();
+                const up = new THREE.Vector3(0, 1, 0);
+                const binormal = new THREE.Vector3().crossVectors(tan, up).normalize();
+                const correctedUp = new THREE.Vector3().crossVectors(binormal, tan).normalize();
+
+                for (let j = 0; j <= radialSegs; j++) {
+                    const angle = (j / radialSegs) * Math.PI; 
+                    const cos = Math.cos(angle);
+                    const sin = Math.sin(angle);
+                    
+                    const pos = pt.clone()
+                        .add(binormal.clone().multiplyScalar(cos * radius))
+                        .add(correctedUp.clone().multiplyScalar(sin * radius));
+                    
+                    vertices.push(pos.x, pos.y, pos.z);
+                    uvs.push(i / steps * 4, j / radialSegs);
+                }
             }
-        }
 
-        const stride = radialSegs + 1;
-        for (let i = 0; i < steps; i++) {
-            for (let j = 0; j < radialSegs; j++) {
-                const current = i * stride + j;
-                const next = (i + 1) * stride + j;
-                
-                indices.push(current, next, current + 1);
-                indices.push(next, next + 1, current + 1);
+            const stride = radialSegs + 1;
+            for (let i = 0; i < steps; i++) {
+                for (let j = 0; j < radialSegs; j++) {
+                    const current = i * stride + j;
+                    const next = (i + 1) * stride + j;
+                    
+                    indices.push(current, next, current + 1);
+                    indices.push(next, next + 1, current + 1);
+                }
             }
-        }
 
-        const geo = new THREE.BufferGeometry();
-        geo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-        geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-        geo.setIndex(indices);
-        geo.computeVertexNormals();
-        return geo;
-    }, [curve]);
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+            geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+            geo.setIndex(indices);
+            geo.computeVertexNormals();
+            return geo;
+        });
+    }, [curve, tunnelSegments]);
+
+    if (tunnelSegments.length === 0) return null;
 
     return (
-        <mesh geometry={geometry}>
-            <meshStandardMaterial 
-                map={tunnelTexture} 
-                color="#888"
-                emissive={config.gridColor}
-                emissiveIntensity={0.6}
-                roughness={0.3}
-                metalness={0.9}
-                side={THREE.DoubleSide} // Render interior
-            />
-        </mesh>
+        <group>
+            {geometries.map((geo, i) => (
+                <mesh key={i} geometry={geo}>
+                    <meshStandardMaterial 
+                        map={tunnelTexture} 
+                        color="#aaa"
+                        emissive={config.gridColor}
+                        emissiveIntensity={0.5}
+                        side={THREE.DoubleSide} 
+                    />
+                </mesh>
+            ))}
+        </group>
     );
 };
 
 // --- Jump Visuals ---
-const JumpArrows = ({ curve }: { curve: THREE.CatmullRomCurve3 }) => {
+const JumpArrows = ({ curve, features }: { curve: THREE.CatmullRomCurve3, features: TrackFeature[] }) => {
+    const jumpSegments = useMemo(() => features.filter(f => f.type === 'JUMP'), [features]);
     const refs = useRef<THREE.Mesh[]>([]);
-    const jumpStartT = 0.45;
 
-    useEffect(() => {
-        // Place arrows on the ramp
-        refs.current.forEach((mesh, i) => {
-            const t = jumpStartT + i * 0.01;
-            const pt = curve.getPointAt(t);
-            const tan = curve.getTangentAt(t).normalize();
-            mesh.position.copy(pt);
-            mesh.lookAt(pt.clone().add(tan));
-            mesh.position.y += 0.5; // Lift off ground
+    const placements = useMemo(() => {
+        const p: { t: number, pos: THREE.Vector3, rot: THREE.Euler }[] = [];
+        jumpSegments.forEach(f => {
+             const count = Math.floor((f.end - f.start) * 80); 
+             for(let i=0; i<count; i++) {
+                 const t = f.start + (i / count) * (f.end - f.start);
+                 const pt = curve.getPointAt(t);
+                 const tan = curve.getTangentAt(t).normalize();
+                 const rot = new THREE.Euler().setFromRotationMatrix(new THREE.Matrix4().lookAt(pt, pt.clone().add(tan), new THREE.Vector3(0,1,0)));
+                 p.push({ t, pos: pt, rot });
+             }
         });
-    }, [curve]);
+        return p;
+    }, [curve, jumpSegments]);
 
     useFrame(({ clock }) => {
         const time = clock.getElapsedTime();
@@ -659,12 +620,15 @@ const JumpArrows = ({ curve }: { curve: THREE.CatmullRomCurve3 }) => {
 
     return (
         <group>
-            {[0, 1, 2, 3, 4, 5, 6].map(i => (
-                <mesh key={i} ref={el => refs.current[i] = el!} rotation={[-Math.PI/2, 0, 0]}>
-                    <planeGeometry args={[10, 5]} />
-                    <meshBasicMaterial color="#00ff00" transparent opacity={0.8} side={THREE.DoubleSide}>
-                        {/* Simple Arrow Texture could be procedural, using color for now */}
-                    </meshBasicMaterial>
+            {placements.map((p, i) => (
+                <mesh 
+                    key={i} 
+                    ref={el => refs.current[i] = el!} 
+                    position={p.pos.clone().add(new THREE.Vector3(0, 0.5, 0))} 
+                    rotation={[p.rot.x - Math.PI/2, p.rot.y, p.rot.z]}
+                >
+                    <planeGeometry args={[12, 6]} />
+                    <meshBasicMaterial color="#00ff00" transparent opacity={0.8} side={THREE.DoubleSide} />
                 </mesh>
             ))}
         </group>
@@ -675,7 +639,6 @@ const StartLineMesh = ({ curve }: { curve: THREE.CatmullRomCurve3 }) => {
     const { pos, rot } = useMemo(() => {
         const pt = curve.getPointAt(0);
         const tan = curve.getTangentAt(0);
-        // LookAt logic for rotation
         const look = pt.clone().add(tan);
         const dummy = new THREE.Object3D();
         dummy.position.copy(pt);
@@ -686,34 +649,25 @@ const StartLineMesh = ({ curve }: { curve: THREE.CatmullRomCurve3 }) => {
     return (
         <group position={pos} rotation={rot}>
             <mesh rotation={[-Math.PI/2, 0, 0]} position={[0, 0.05, 0]}>
-                <planeGeometry args={[FULL_WIDTH, 6]} />
+                <planeGeometry args={[FULL_WIDTH, 8]} />
                 <meshBasicMaterial map={startFinishTexture} transparent />
             </mesh>
-            {/* 拱门柱子 */}
-            <mesh position={[-FULL_WIDTH/2 - 1, 4, 0]}>
-                <boxGeometry args={[1, 8, 1]} />
+            <mesh position={[-FULL_WIDTH/2 - 2, 6, 0]}>
+                <boxGeometry args={[2, 12, 2]} />
                 <meshStandardMaterial color="#222" />
             </mesh>
-            <mesh position={[FULL_WIDTH/2 + 1, 4, 0]}>
-                <boxGeometry args={[1, 8, 1]} />
+            <mesh position={[FULL_WIDTH/2 + 2, 6, 0]}>
+                <boxGeometry args={[2, 12, 2]} />
                 <meshStandardMaterial color="#222" />
             </mesh>
-            {/* 横梁 */}
-            <mesh position={[0, 7.5, 0]}>
-                <boxGeometry args={[FULL_WIDTH + 4, 1.5, 1]} />
+            <mesh position={[0, 11, 0]}>
+                <boxGeometry args={[FULL_WIDTH + 8, 2, 2]} />
                 <meshStandardMaterial color="#111" emissive="#ff0000" emissiveIntensity={0.8} />
             </mesh>
-             {/* START 标志 */}
-             <mesh position={[0, 7.5, 0.6]}>
-                <planeGeometry args={[10, 1]} />
-                <meshBasicMaterial color="#fff" side={THREE.DoubleSide} onUpdate={(self) => {
-                }} />
-             </mesh>
         </group>
     )
 }
 
-// --- Audio Hook (Unchanged) ---
 const usePlayerAudio = (volume: number) => {
     const contextRef = useRef<AudioContext | null>(null);
     const engineOscRef = useRef<OscillatorNode | null>(null);
@@ -810,7 +764,6 @@ const usePlayerAudio = (volume: number) => {
     return { updateAudio, playCollision };
 };
 
-// --- DriftSmoke Component ---
 const DriftSmoke = ({ active, position }: { active: boolean, position?: THREE.Vector3 }) => {
     const meshRef = useRef<THREE.InstancedMesh>(null);
     const dummy = useMemo(() => new THREE.Object3D(), []);
@@ -829,11 +782,10 @@ const DriftSmoke = ({ active, position }: { active: boolean, position?: THREE.Ve
                 const p = particles.find(p => p.life <= 0);
                 if (p) {
                     p.life = 0.5 + Math.random() * 0.4;
-                    // Emitter near wheels
-                    const side = Math.random() > 0.5 ? 0.9 : -0.9;
+                    const side = Math.random() > 0.5 ? 1.0 : -1.0;
                     p.pos.set(side, 0.2, 1.2);
-                    p.vx = (Math.random() - 0.5) * 1.5;
-                    p.vz = 5 + Math.random() * 5; // Move backwards relative to car
+                    p.vx = (Math.random() - 0.5) * 2;
+                    p.vz = 5 + Math.random() * 5; 
                 }
              }
         }
@@ -846,7 +798,7 @@ const DriftSmoke = ({ active, position }: { active: boolean, position?: THREE.Ve
                 p.pos.y += delta * 1.5;
                 p.pos.z += p.vz * delta;
                 
-                const s = 1 + (1.0 - p.life) * 1.5;
+                const s = 1 + (1.0 - p.life) * 2;
                 dummy.position.copy(p.pos);
                 dummy.scale.set(s, s, s);
                 dummy.rotation.z = Math.random() * Math.PI;
@@ -860,13 +812,12 @@ const DriftSmoke = ({ active, position }: { active: boolean, position?: THREE.Ve
 
     return (
         <instancedMesh ref={meshRef} args={[undefined, undefined, 40]}>
-            <planeGeometry args={[0.5, 0.5]} />
+            <planeGeometry args={[0.6, 0.6]} />
             <meshBasicMaterial color="#cccccc" transparent opacity={0.3} depthWrite={false} />
         </instancedMesh>
     );
 };
 
-// --- Collision Sparks ---
 const CollisionSparks = ({ active, position }: { active: boolean, position: THREE.Vector3 }) => {
     const meshRef = useRef<THREE.InstancedMesh>(null);
     const dummy = useMemo(() => new THREE.Object3D(), []);
@@ -876,14 +827,8 @@ const CollisionSparks = ({ active, position }: { active: boolean, position: THRE
         velocity: new THREE.Vector3()
     })), []);
     
-    // Trigger burst when active changes to true (handled by parent logic repeatedly calling or resetting?)
-    // Actually, parent will likely just set active=true for a frame or pass a signal.
-    // Better: maintain own state of burst based on prop change or just always emit if active.
-    
     useFrame((_, delta) => {
         if (!meshRef.current) return;
-        
-        // Emit logic
         if (active) {
             for (let i = 0; i < 5; i++) {
                 const p = particles.find(p => p.life <= 0);
@@ -904,12 +849,12 @@ const CollisionSparks = ({ active, position }: { active: boolean, position: THRE
             if (p.life > 0) {
                 p.life -= delta;
                 p.pos.addScaledVector(p.velocity, delta);
-                p.velocity.y -= 20 * delta; // Gravity
+                p.velocity.y -= 20 * delta; 
                 
                 const s = p.life * 2;
                 dummy.position.copy(p.pos);
                 dummy.scale.set(s, s, s);
-                dummy.lookAt(position); // billboard-ish
+                dummy.lookAt(position); 
                 dummy.updateMatrix();
                 meshRef.current!.setMatrixAt(count++, dummy.matrix);
             }
@@ -926,15 +871,12 @@ const CollisionSparks = ({ active, position }: { active: boolean, position: THRE
     );
 }
 
-// --- 车辆组件 (重写对齐逻辑) ---
-
 interface VehicleProps {
     racerRef: React.MutableRefObject<RacerState>;
     curve: THREE.CatmullRomCurve3;
     isPlayer: boolean;
     sfxVolume?: number;
     skidMarkRef?: any;
-    // New props for customization
     config?: CarStats;
     playerCustomization?: any;
 }
@@ -946,73 +888,48 @@ const Vehicle: React.FC<VehicleProps> = ({ racerRef, curve, isPlayer, skidMarkRe
     const audio = usePlayerAudio(sfxVolume);
     const [collisionActive, setCollisionActive] = useState(false);
 
-    // Determine appearance
     const carColor = useMemo(() => {
         if (isPlayer && playerCustomization?.color) return playerCustomization.color;
         return racerRef.current.color;
     }, [isPlayer, playerCustomization, racerRef]);
     
-    // Decal texture
-    const decalMap = useMemo(() => {
-        // Implement real texture loading if needed
-        return null; 
-    }, [playerCustomization]);
-
     useFrame((state, delta) => {
         const racer = racerRef.current;
         if (!group.current || racer.health <= 0) return;
 
         if (isPlayer) audio.updateAudio(racer.speed, racer.isDrifting, racer.isNitroActive);
 
-        // 核心对齐算法：必须与 TrackMesh 生成算法保持一致
         const t = racer.t % 1;
         const point = curve.getPointAt(t);
         const tangent = curve.getTangentAt(t).normalize();
-        const up = new THREE.Vector3(0, 1, 0); // 必须是全局 Up，不能依赖 Frenet
+        const up = new THREE.Vector3(0, 1, 0); 
         const binormal = new THREE.Vector3().crossVectors(tangent, up).normalize();
         
-        // 计算物理位置
-        // 修正：车道偏移需要乘以实际的赛道宽度比例
-        // laneOffset -1 to 1. Full track width for lanes is TRACK_WIDTH (excluding shoulders)
+        // Calculate lane offset
         const laneX = racer.laneOffset * (TRACK_WIDTH / 2 - 2); 
         const currentPos = point.clone().add(binormal.clone().multiplyScalar(laneX));
         
-        // 确保垂直于切线
         group.current.position.lerp(currentPos, 0.8);
-        
-        // 旋转：LookAt 切线方向
         const lookTarget = currentPos.clone().add(tangent);
         group.current.lookAt(lookTarget);
 
-        // 模拟底盘悬挂动作
         if (chassis.current) {
             const driftAngle = racer.isDrifting ? (racer.laneOffset > 0 ? 0.3 : -0.3) : 0;
-            // 漂移时的车身偏航
             chassis.current.rotation.y = THREE.MathUtils.lerp(chassis.current.rotation.y, driftAngle, delta * 8);
-            // 转弯倾斜
             chassis.current.rotation.z = THREE.MathUtils.lerp(chassis.current.rotation.z, -racer.laneOffset * 0.05, delta * 4);
-            // 加速抬头/刹车点头
             const pitch = racer.isNitroActive ? -0.05 : 0;
             chassis.current.rotation.x = THREE.MathUtils.lerp(chassis.current.rotation.x, pitch, delta * 5);
         }
 
-        // 胎痕
         if (racer.isDrifting && skidMarkRef && skidMarkRef.current) {
             if (lastPos.current.distanceTo(group.current.position) > 0.6) {
-                const l = group.current.position.clone().add(binormal.clone().multiplyScalar(-0.8));
-                const r = group.current.position.clone().add(binormal.clone().multiplyScalar(0.8));
-                // 确保胎痕略微高于路面
+                const l = group.current.position.clone().add(binormal.clone().multiplyScalar(-1.0));
+                const r = group.current.position.clone().add(binormal.clone().multiplyScalar(1.0));
                 skidMarkRef.current.addMark(l, group.current.rotation);
                 skidMarkRef.current.addMark(r, group.current.rotation);
                 lastPos.current.copy(group.current.position);
             }
         }
-        
-        // Check collision flag from logic (simple workaround: if health drops fast?)
-        // Better: GameScene sets a "collision event" in state. 
-        // For now, we assume GameScene handled the logic and maybe we trigger visual based on sudden speed drop or similar?
-        // Actually, let's just make collision sparks appear if we are off-road or hitting something (handled by GameScene logic passing props?)
-        // For simplicity in this structure: GameScene handles physics.
     });
 
     useEffect(() => {
@@ -1027,66 +944,38 @@ const Vehicle: React.FC<VehicleProps> = ({ racerRef, curve, isPlayer, skidMarkRe
 
     return (
         <group ref={group}>
-            {/* 车影 */}
+            {/* Simple Shadow Blob */}
             <mesh rotation={[-Math.PI/2, 0, 0]} position={[0, 0.02, 0]}>
-                <planeGeometry args={[2.4, 4.8]} />
-                <meshBasicMaterial color="#000" transparent opacity={0.7} depthWrite={false} />
+                <planeGeometry args={[2.8, 5.0]} />
+                <meshBasicMaterial color="#000" transparent opacity={0.6} depthWrite={false} />
             </mesh>
             <group ref={chassis}>
-                 {/* 车身 */}
                  <mesh position={[0, 0.5, 0]} castShadow receiveShadow>
                     <boxGeometry args={[1.8, 0.6, 3.6]} />
                     <meshStandardMaterial color={carColor} metalness={0.7} roughness={0.2} envMapIntensity={1.5} />
                  </mesh>
-                 {/* Decal Overlay (Simplified) */}
                  {playerCustomization?.decalId && (
                      <mesh position={[0, 0.81, 0]} rotation={[-Math.PI/2, 0, 0]}>
                          <planeGeometry args={[1.5, 3.0]} />
                          <meshStandardMaterial color="#fff" transparent opacity={0.8} />
                      </mesh>
                  )}
-
-                 {/* 驾驶舱 */}
                  <mesh position={[0, 0.9, -0.3]}>
                     <boxGeometry args={[1.4, 0.5, 1.8]} />
                     <meshStandardMaterial color="#111" metalness={0.9} roughness={0.1} />
                  </mesh>
-                 {/* 尾翼 */}
                  <mesh position={[0, 1.0, 1.6]}>
                      <boxGeometry args={[2.0, 0.1, 0.5]} />
                      <meshStandardMaterial color={carColor} />
                  </mesh>
-                 <mesh position={[-0.8, 0.8, 1.6]}>
-                     <boxGeometry args={[0.1, 0.4, 0.4]} />
-                     <meshStandardMaterial color="#222" />
-                 </mesh>
-                 <mesh position={[0.8, 0.8, 1.6]}>
-                     <boxGeometry args={[0.1, 0.4, 0.4]} />
-                     <meshStandardMaterial color="#222" />
-                 </mesh>
-
-                 {/* 车灯 */}
-                 <mesh position={[0.6, 0.5, -1.8]}>
-                     <boxGeometry args={[0.4, 0.2, 0.1]} />
-                     <meshBasicMaterial color="#fff" />
-                 </mesh>
-                 <mesh position={[-0.6, 0.5, -1.8]}>
-                     <boxGeometry args={[0.4, 0.2, 0.1]} />
-                     <meshBasicMaterial color="#fff" />
-                 </mesh>
-                 {/* 尾灯 */}
                  <mesh position={[0, 0.6, 1.81]}>
                      <planeGeometry args={[1.6, 0.2]} />
                      <meshBasicMaterial color={racerRef.current.isNitroActive ? "#00ffff" : "#ff0000"} />
                  </mesh>
-
                  {racerRef.current.isPlayer && (
-                    <>
-                        <spotLight position={[0, 2, -1]} angle={0.6} penumbra={0.5} intensity={10} castShadow distance={80} color="#fff" target={group.current || undefined} />
-                    </>
+                    <spotLight position={[0, 2, -1]} angle={0.6} penumbra={0.5} intensity={10} castShadow distance={80} color="#fff" target={group.current || undefined} />
                  )}
             </group>
-            {/* 轮子 */}
             {[[-0.95, 0.35, 1.1], [0.95, 0.35, 1.1], [-0.95, 0.35, -1.1], [0.95, 0.35, -1.1]].map((pos, i) => (
                 <mesh key={i} position={pos as [number,number,number]} rotation={[0,0,Math.PI/2]} castShadow>
                     <cylinderGeometry args={[0.35, 0.35, 0.5, 16]} />
@@ -1099,8 +988,6 @@ const Vehicle: React.FC<VehicleProps> = ({ racerRef, curve, isPlayer, skidMarkRe
     );
 };
 
-// --- 主游戏场景 ---
-
 interface GameSceneProps {
     trackConfig: TrackConfig;
     carConfig: CarStats;
@@ -1112,35 +999,37 @@ interface GameSceneProps {
     quality: 'LOW' | 'HIGH';
     sfxVolume: number;
     sensitivity: number;
+    aiCount: number;
 }
 
 export const GameScene: React.FC<GameSceneProps> = ({ 
-    trackConfig, carConfig, playerCustomization, onGameOver, onScoreUpdate, onCountdown, raceStatus, quality, sfxVolume, sensitivity
+    trackConfig, carConfig, playerCustomization, onGameOver, onScoreUpdate, onCountdown, raceStatus, quality, sfxVolume, sensitivity, aiCount
 }) => {
+    // 获取当前赛道的特性列表
+    const trackFeatures = useMemo(() => getTrackFeatures(trackConfig.id), [trackConfig.id]);
+
     // 生成赛道曲线
-    const curve = useMemo(() => generateTrackPath(42, trackConfig.curveIntensity, trackConfig.length / 3, trackConfig.id), [trackConfig]);
+    const curve = useMemo(() => generateTrackPath(42, trackConfig.curveIntensity, trackConfig.length / 3, trackConfig.id, trackFeatures), [trackConfig, trackFeatures]);
     
-    // 物理状态
     const playerRef = useRef<RacerState>({
-        id: 'player', t: 0.995, laneOffset: 0, speed: 0, lap: 1, isPlayer: true, nitroLevel: 100, health: carConfig.maxHealth, maxHealth: carConfig.maxHealth, rank: 1, distance: 0, isNitroActive: false, isDrifting: false, color: carConfig.color, velocity: {x:0, z:0}, lastLaneChange: 0
+        id: 'player', t: 0.0, laneOffset: 0, speed: 0, lap: 1, isPlayer: true, nitroLevel: 100, health: carConfig.maxHealth, maxHealth: carConfig.maxHealth, rank: 1, distance: 0, isNitroActive: false, isDrifting: false, color: carConfig.color, velocity: {x:0, z:0}, lastLaneChange: 0
     });
     
     const aiRefs = useRef<RacerState[]>([]);
     const skidMarkRef = useRef<any>(null);
     const collisionCooldown = useRef(0);
-    const shakeIntensity = useRef(0); // Camera Shake Intensity
+    const shakeIntensity = useRef(0); 
     const keys = useRef({ left: false, right: false, up: false, down: false, drift: false, nitro: false });
     const MAX_LAPS = 2;
 
-    // AI 初始化
     useMemo(() => {
         aiRefs.current = [];
-        const colors = ['#ff3333', '#33ff33', '#3333ff', '#ffff33', '#33ffff'];
-        for(let i=0; i<5; i++) {
+        const colors = ['#ff3333', '#33ff33', '#3333ff', '#ffff33', '#33ffff', '#ff00ff'];
+        for(let i=0; i < aiCount; i++) {
             aiRefs.current.push({
                 id: `ai_${i}`,
                 t: 0.99 - (i * 0.005), 
-                laneOffset: ((i % 2 === 0) ? 0.6 : -0.6), 
+                laneOffset: ((i % 2 === 0) ? 0.5 : -0.5), 
                 speed: 0,
                 lap: 1,
                 isPlayer: false,
@@ -1151,14 +1040,13 @@ export const GameScene: React.FC<GameSceneProps> = ({
                 distance: 0,
                 isNitroActive: false,
                 isDrifting: false,
-                color: colors[i],
+                color: colors[i % colors.length],
                 velocity: { x: 0, z: 0 },
                 lastLaneChange: 0
             });
         }
-    }, [trackConfig]);
+    }, [trackConfig, aiCount]);
 
-    // 输入处理
     useEffect(() => {
         const handleKey = (e: KeyboardEvent, pressed: boolean) => {
             const key = e.key.toLowerCase();
@@ -1169,7 +1057,6 @@ export const GameScene: React.FC<GameSceneProps> = ({
             if(key === 'shift') keys.current.drift = pressed;
             if(key === ' ') keys.current.nitro = pressed;
             if (pressed && e.key === 'Escape' && raceStatus === RaceStatus.RACING) {
-                // Should pause, but for now simple quit
                 onGameOver(0, RaceStatus.WRECKED, 6); 
             }
         };
@@ -1181,7 +1068,6 @@ export const GameScene: React.FC<GameSceneProps> = ({
         };
     }, [raceStatus, onGameOver]);
 
-    // 倒计时
     useEffect(() => {
         if (raceStatus === RaceStatus.COUNTDOWN) {
             let count = 3;
@@ -1194,131 +1080,118 @@ export const GameScene: React.FC<GameSceneProps> = ({
         }
     }, [raceStatus, onCountdown]);
 
-    // 物理循环
     useFrame((state, delta) => {
-        if (raceStatus !== RaceStatus.RACING) return;
-        
-        // 防止超大 delta 导致穿模
         const dt = Math.min(delta, 0.05);
-
         const p = playerRef.current;
         
-        // 氮气
-        if (keys.current.nitro && p.nitroLevel > 0) {
-            p.isNitroActive = true;
-            p.nitroLevel = Math.max(0, p.nitroLevel - dt * 40);
-            shakeIntensity.current = Math.max(shakeIntensity.current, 0.15); // Nitro Shake
-        } else {
-            p.isNitroActive = false;
-            p.nitroLevel = Math.min(100, p.nitroLevel + dt * 10);
-        }
-
-        // 速度逻辑
-        const baseSpeed = carConfig.speed * 2.5; // 提高基础速度感
-        const maxSpeed = p.isNitroActive ? baseSpeed * 1.5 : baseSpeed;
-        let targetSpeed = 0;
-        
-        if (keys.current.up) targetSpeed = maxSpeed;
-        else if (keys.current.down) targetSpeed = -30; 
-        
-        p.isDrifting = keys.current.drift && Math.abs(p.speed) > 50 && (keys.current.left || keys.current.right);
-        if (p.isDrifting) targetSpeed *= 0.95;
-
-        // 加速度
-        const accel = keys.current.up ? carConfig.acceleration * 2 : 3.0;
-        p.speed = THREE.MathUtils.lerp(p.speed, targetSpeed, dt * accel);
-        
-        // 转向
-        const sensitivityFactor = sensitivity / 50;
-        let turn = 0;
-        // 修正：按下左键(A/←)应该向左移动(laneOffset减小)，按下右键(D/→)应该向右移动(laneOffset增加)
-        if (keys.current.left) turn -= 1;
-        if (keys.current.right) turn += 1;
-        
-        // 速度越快，转向越灵敏但受限
-        const speedFactor = Math.min(1.0, Math.abs(p.speed) / 50);
-        const handling = carConfig.handling * sensitivityFactor * (p.isDrifting ? 1.5 : 1.0) * speedFactor;
-        
-        p.laneOffset += turn * handling * dt;
-        
-        // 撞墙检测
-        if (p.laneOffset > 1.0 || p.laneOffset < -1.0) {
-            p.laneOffset = THREE.MathUtils.clamp(p.laneOffset, -1.0, 1.0);
-            p.speed *= 0.9; // 蹭墙减速
-            p.health -= dt * 5;
-            shakeIntensity.current = Math.max(shakeIntensity.current, 0.3); // Wall Hit Shake
-        }
-
-        // 移动
-        const distStep = (p.speed * dt) / 2000; // 调整距离比例
-        p.t += distStep;
-        p.distance += distStep;
-        if(p.t >= 1) { p.t -= 1; p.lap++; if(p.lap > MAX_LAPS) onGameOver(p.distance * 1000, RaceStatus.FINISHED, p.rank); }
-
-        // AI 逻辑
-        aiRefs.current.forEach(ai => {
-            let targetAiSpeed = baseSpeed * 0.92;
-            // 简单的弯道减速
-            const tNext = (ai.t + 0.05) % 1;
-            const curvature = curve.getTangentAt(ai.t).angleTo(curve.getTangentAt(tNext));
-            if (curvature > 0.3) targetAiSpeed *= 0.7;
-
-            ai.speed = THREE.MathUtils.lerp(ai.speed, targetAiSpeed, dt * 1.0);
+        // 1. 物理计算 (仅在比赛进行时更新)
+        if (raceStatus === RaceStatus.RACING) {
             
-            // 简单AI变道
-            if (Math.random() < 0.02) {
-                ai.lastLaneChange = (Math.random() - 0.5) * 2;
+            if (keys.current.nitro && p.nitroLevel > 0) {
+                p.isNitroActive = true;
+                p.nitroLevel = Math.max(0, p.nitroLevel - dt * 40);
+                shakeIntensity.current = Math.max(shakeIntensity.current, 0.15); 
+            } else {
+                p.isNitroActive = false;
+                p.nitroLevel = Math.min(100, p.nitroLevel + dt * 10);
             }
-            ai.laneOffset = THREE.MathUtils.lerp(ai.laneOffset, ai.lastLaneChange, dt * 0.5);
-             if (ai.laneOffset > 1.0) ai.laneOffset = 1.0;
-             if (ai.laneOffset < -1.0) ai.laneOffset = -1.0;
 
-            const aiStep = (ai.speed * dt) / 2000;
-            ai.t += aiStep;
-            ai.distance += aiStep;
-            if(ai.t >= 1) { ai.t -= 1; ai.lap++; }
-        });
-
-        // 碰撞检测
-        if (collisionCooldown.current > 0) collisionCooldown.current -= dt;
-        aiRefs.current.forEach(ai => {
-            const tDist = Math.abs(p.t - ai.t);
-            const laneDist = Math.abs(p.laneOffset - ai.laneOffset);
+            const baseSpeed = carConfig.speed * 2.5; 
+            const maxSpeed = p.isNitroActive ? baseSpeed * 1.5 : baseSpeed;
+            let targetSpeed = 0;
             
-            // 0.005 约等于一个车身长度
-            if (tDist < 0.005 && laneDist < 0.4 && collisionCooldown.current <= 0) {
-                collisionCooldown.current = 0.5;
-                p.speed *= 0.8;
-                p.health -= 10;
-                // 弹开
-                const pushDir = p.laneOffset > ai.laneOffset ? 1 : -1;
-                p.laneOffset += pushDir * 0.2;
-                shakeIntensity.current = Math.max(shakeIntensity.current, 0.8); // Car Collision Shake
-                if (p.health <= 0) onGameOver(p.distance * 1000, RaceStatus.WRECKED, 6);
+            if (keys.current.up) targetSpeed = maxSpeed;
+            else if (keys.current.down) targetSpeed = -30; 
+            
+            p.isDrifting = keys.current.drift && Math.abs(p.speed) > 50 && (keys.current.left || keys.current.right);
+            if (p.isDrifting) targetSpeed *= 0.95;
+
+            const accel = keys.current.up ? carConfig.acceleration * 2 : 3.0;
+            p.speed = THREE.MathUtils.lerp(p.speed, targetSpeed, dt * accel);
+            
+            const sensitivityFactor = sensitivity / 50;
+            let turn = 0;
+            if (keys.current.left) turn -= 1;
+            if (keys.current.right) turn += 1;
+            
+            const speedFactor = Math.min(1.0, Math.abs(p.speed) / 50);
+            const handling = carConfig.handling * sensitivityFactor * (p.isDrifting ? 1.5 : 1.0) * speedFactor;
+            
+            p.laneOffset += turn * handling * dt;
+            
+            // Clamp lane offset
+            if (p.laneOffset > 1.1 || p.laneOffset < -1.1) {
+                p.laneOffset = THREE.MathUtils.clamp(p.laneOffset, -1.2, 1.2);
+                p.speed *= 0.9; 
+                p.health -= dt * 5;
+                shakeIntensity.current = Math.max(shakeIntensity.current, 0.3); 
+            }
+
+            const distStep = (p.speed * dt) / 2000; 
+            p.t += distStep;
+            p.distance += distStep;
+            if(p.t >= 1) { p.t -= 1; p.lap++; if(p.lap > MAX_LAPS) onGameOver(p.distance * 1000, RaceStatus.FINISHED, p.rank); }
+
+            aiRefs.current.forEach(ai => {
+                let targetAiSpeed = baseSpeed * 0.92;
+                const tNext = (ai.t + 0.05) % 1;
+                const curvature = curve.getTangentAt(ai.t).angleTo(curve.getTangentAt(tNext));
+                if (curvature > 0.3) targetAiSpeed *= 0.7;
+
+                ai.speed = THREE.MathUtils.lerp(ai.speed, targetAiSpeed, dt * 1.0);
                 
-                // Visual Spark
-                // Ideally trigger via ref
-            }
-        });
+                if (Math.random() < 0.02) {
+                    ai.lastLaneChange = (Math.random() - 0.5) * 2;
+                }
+                ai.laneOffset = THREE.MathUtils.lerp(ai.laneOffset, ai.lastLaneChange, dt * 0.5);
+                if (ai.laneOffset > 1.0) ai.laneOffset = 1.0;
+                if (ai.laneOffset < -1.0) ai.laneOffset = -1.0;
 
-        // 排名计算
-        const allRacers = [p, ...aiRefs.current].sort((a, b) => b.distance - a.distance);
-        p.rank = allRacers.findIndex(r => r.id === p.id) + 1;
+                const aiStep = (ai.speed * dt) / 2000;
+                ai.t += aiStep;
+                ai.distance += aiStep;
+                if(ai.t >= 1) { ai.t -= 1; ai.lap++; }
+            });
 
-        // UI 更新频率限制
+            if (collisionCooldown.current > 0) collisionCooldown.current -= dt;
+            aiRefs.current.forEach(ai => {
+                const tDist = Math.abs(p.t - ai.t);
+                const laneDist = Math.abs(p.laneOffset - ai.laneOffset);
+                
+                if (tDist < 0.005 && laneDist < 0.4 && collisionCooldown.current <= 0) {
+                    collisionCooldown.current = 0.5;
+                    p.speed *= 0.8;
+                    p.health -= 10;
+                    const pushDir = p.laneOffset > ai.laneOffset ? 1 : -1;
+                    p.laneOffset += pushDir * 0.2;
+                    shakeIntensity.current = Math.max(shakeIntensity.current, 0.8); 
+                    if (p.health <= 0) onGameOver(p.distance * 1000, RaceStatus.WRECKED, 6);
+                }
+            });
+
+            const allRacers = [p, ...aiRefs.current].sort((a, b) => b.distance - a.distance);
+            p.rank = allRacers.findIndex(r => r.id === p.id) + 1;
+        
+        } else if (raceStatus === RaceStatus.COUNTDOWN) {
+            // 锁定车辆
+            p.speed = 0;
+            p.t = 0;
+            p.laneOffset = 0;
+            // 倒计时期间添加轻微的震动感，模拟引擎怠速
+            shakeIntensity.current = 0.015; 
+        }
+
         if (state.clock.elapsedTime % 0.1 < 0.02) {
             onScoreUpdate({ ...p });
         }
 
-        // --- 相机逻辑 (Action Cam) ---
+        // 2. 摄像机逻辑 (始终更新，确保倒计时期间有画面)
         const cam = state.camera as THREE.PerspectiveCamera;
-        
-        // 动态 FOV：速度越快视角越广
-        const targetFOV = 70 + Math.min(40, p.speed * 0.2);
-        cam.fov = THREE.MathUtils.lerp(cam.fov, targetFOV, dt * 2);
+        // 动态 FOV
+        const targetFOV = 60 + Math.min(50, p.speed * 0.25);
+        cam.fov = THREE.MathUtils.lerp(cam.fov, targetFOV, dt * 3);
         cam.updateProjectionMatrix();
 
-        // 算出车在世界坐标的位置
         const tClamped = p.t % 1;
         const pt = curve.getPointAt(tClamped);
         const tan = curve.getTangentAt(tClamped).normalize();
@@ -1327,28 +1200,27 @@ export const GameScene: React.FC<GameSceneProps> = ({
         
         const laneX = p.laneOffset * (TRACK_WIDTH / 2 - 2);
         const carWorldPos = pt.clone().add(binormal.multiplyScalar(laneX));
-        carWorldPos.y += 1.0; // 视点高度
+        carWorldPos.y += 1.0; 
 
-        // 相机目标位置：车后方 + 稍微偏上
-        // 距离更近，更低，增加速度感
-        const camOffset = tan.clone().multiplyScalar(-7.0).add(new THREE.Vector3(0, 2.5, 0));
+        // 追尾摄像机位置计算
+        // 基础偏移：后退 9 个单位，向上 4 个单位 (第三人称视角)
+        const camOffset = tan.clone().multiplyScalar(-9.0).add(new THREE.Vector3(0, 4.0, 0));
         
-        // 漂移时的相机甩尾效果
+        // 漂移时的镜头偏移
         if (p.isDrifting) {
             const side = p.laneOffset > 0 ? -1 : 1;
-            camOffset.add(binormal.clone().multiplyScalar(side * 2.0));
+            camOffset.add(binormal.clone().multiplyScalar(side * 2.5));
         }
 
         const targetCamPos = carWorldPos.clone().add(camOffset);
         
-        // 简单的地形避让 (Prevent camera clipping under ground)
+        // 防止镜头穿地
         const groundH = getTerrainHeight(targetCamPos.x, targetCamPos.z, trackConfig.id);
-        // Also check if inside a tunnel (approximate check by Y height if needed, but simple Y check works for now)
-        if (targetCamPos.y < groundH + 1.5) targetCamPos.y = groundH + 1.5;
+        if (targetCamPos.y < groundH + 2) targetCamPos.y = groundH + 2;
 
-        // Apply Shake
-        shakeIntensity.current = THREE.MathUtils.lerp(shakeIntensity.current, 0, dt * 5);
-        if (shakeIntensity.current > 0.01) {
+        // 震动效果
+        shakeIntensity.current = THREE.MathUtils.lerp(shakeIntensity.current, 0, dt * 4);
+        if (shakeIntensity.current > 0.001) {
             targetCamPos.add(new THREE.Vector3(
                 (Math.random() - 0.5) * shakeIntensity.current,
                 (Math.random() - 0.5) * shakeIntensity.current,
@@ -1356,35 +1228,27 @@ export const GameScene: React.FC<GameSceneProps> = ({
             ));
         }
 
-        // 增加阻尼，防止震荡
-        state.camera.position.lerp(targetCamPos, dt * 5);
+        state.camera.position.lerp(targetCamPos, dt * 6);
         
-        // LookAt 稍微前方
-        const lookAtTarget = carWorldPos.clone().add(tan.clone().multiplyScalar(10));
-        
-        // 平滑 LookAt，避免瞬间抖动
-        const currentLookAt = new THREE.Vector3();
-        state.camera.getWorldDirection(currentLookAt);
-        const targetLookAt = lookAtTarget.clone().sub(state.camera.position).normalize();
-        const smoothedLookAt = currentLookAt.lerp(targetLookAt, dt * 8);
-        
-        state.camera.lookAt(state.camera.position.clone().add(smoothedLookAt));
+        // 看向前方远处
+        const lookAtTarget = carWorldPos.clone().add(tan.clone().multiplyScalar(15));
+        state.camera.lookAt(lookAtTarget);
     });
 
     return (
         <>
             <color attach="background" args={[trackConfig.skyColor]} />
-            <fog attach="fog" args={[trackConfig.fogColor, 30, 400]} />
-            <ambientLight intensity={0.6} color={trackConfig.groundColor} />
-            <directionalLight position={[100, 200, 50]} intensity={1.2} castShadow shadow-mapSize={[2048, 2048]} />
+            <fog attach="fog" args={[trackConfig.fogColor, 40, 500]} />
+            <ambientLight intensity={0.5} color={trackConfig.groundColor} />
+            <directionalLight position={[100, 200, 50]} intensity={1.5} castShadow shadow-mapSize={[2048, 2048]} />
             
             <BackgroundLayers config={trackConfig} />
             <TrackMesh curve={curve} config={trackConfig} />
-            <TunnelMesh curve={curve} config={trackConfig} />
-            <JumpArrows curve={curve} />
+            <TunnelMesh curve={curve} config={trackConfig} features={trackFeatures} />
+            <JumpArrows curve={curve} features={trackFeatures} />
             <StartLineMesh curve={curve} />
             <TerrainMesh config={trackConfig} />
-            <BiomeEnvironment config={trackConfig} curve={curve} />
+            <BiomeEnvironment config={trackConfig} curve={curve} features={trackFeatures} />
             <InstancedSkidMarks ref={skidMarkRef} />
             
             <Vehicle 
@@ -1402,10 +1266,10 @@ export const GameScene: React.FC<GameSceneProps> = ({
 
             <SpeedLines speed={playerRef.current.speed} />
 
-            <EffectComposer>
-                <Bloom luminanceThreshold={0.8} mipmapBlur intensity={1.2} radius={0.4} />
+            <EffectComposer enableNormalPass={false}>
+                <Bloom luminanceThreshold={0.7} mipmapBlur intensity={1.0} radius={0.3} />
                 <ChromaticAberration offset={new THREE.Vector2(0.002, 0.002)} />
-                <Vignette eskil={false} offset={0.1} darkness={0.5} />
+                <Vignette eskil={false} offset={0.1} darkness={0.4} />
                 {quality === 'HIGH' && <Noise opacity={0.05} />}
             </EffectComposer>
         </>

@@ -97,6 +97,7 @@ export interface SettingsState {
   musicVolume: number;
   sfxVolume: number;
   sensitivity: number; // 0-100, default 50
+  aiCount: number; // 2-6, default 5
 }
 
 export interface RacerState {

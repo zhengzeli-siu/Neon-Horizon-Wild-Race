@@ -4,20 +4,26 @@ import * as THREE from 'three';
 import { createNoise2D } from 'simplex-noise';
 
 // --- 全局配置 ---
-export const LANE_WIDTH = 4; // 车道宽
-export const SHOULDER_WIDTH = 2.5; // 路肩宽
-export const TRACK_WIDTH = LANE_WIDTH * 3; // 赛道主路宽 (3车道宽)
-export const FULL_WIDTH = TRACK_WIDTH + SHOULDER_WIDTH * 2; // 总宽
+export const LANE_WIDTH = 6; // Slightly wider lanes for better speed feel
+export const SHOULDER_WIDTH = 5; // Distinct shoulders
+export const TRACK_WIDTH = LANE_WIDTH * 3; 
+export const FULL_WIDTH = TRACK_WIDTH + SHOULDER_WIDTH * 2; 
 export const SEGMENTS_MULTIPLIER = 4;
 
 export const noise2D = createNoise2D();
 
 export const getTerrainHeight = (x: number, z: number, biome: BiomeType) => {
-    let y = noise2D(x * 0.002, z * 0.002) * 50;
-    y += noise2D(x * 0.01, z * 0.01) * 5;
-    if (biome === BiomeType.DESERT) y = Math.abs(y) * 1.5;
-    else if (biome === BiomeType.CITY) y = Math.floor(y / 15) * 15;
-    return y;
+    // Smoother base terrain
+    let y = noise2D(x * 0.001, z * 0.001) * 35; 
+    y += noise2D(x * 0.003, z * 0.003) * 10;
+    
+    if (biome === BiomeType.DESERT) {
+        y = Math.abs(y) * 1.5; // Rolling dunes
+    } else if (biome === BiomeType.CITY) {
+        y = Math.floor(y / 15) * 15; // Terraced levels
+    }
+    
+    return Math.max(-40, y);
 };
 
 export const PRIZES = { 1: 500, 2: 300, 3: 150, others: 50 };
@@ -105,9 +111,9 @@ export const TRACKS: Record<BiomeType, TrackConfig> = {
     skyColor: '#331100',
     difficultyMultiplier: 1.0,
     weather: WeatherType.CLEAR,
-    length: 350,
-    curveIntensity: 30,
-    sceneryCount: 300
+    length: 300,
+    curveIntensity: 10,
+    sceneryCount: 150
   },
   [BiomeType.SNOW]: {
     id: BiomeType.SNOW,
@@ -119,9 +125,9 @@ export const TRACKS: Record<BiomeType, TrackConfig> = {
     skyColor: '#001133',
     difficultyMultiplier: 1.5,
     weather: WeatherType.SNOW_STORM,
-    length: 450,
-    curveIntensity: 50,
-    sceneryCount: 400
+    length: 350,
+    curveIntensity: 15,
+    sceneryCount: 200
   },
   [BiomeType.CITY]: {
     id: BiomeType.CITY,
@@ -133,66 +139,107 @@ export const TRACKS: Record<BiomeType, TrackConfig> = {
     skyColor: '#020005',
     difficultyMultiplier: 2.0,
     weather: WeatherType.RAIN,
-    length: 600,
-    curveIntensity: 70,
-    sceneryCount: 800
+    length: 450,
+    curveIntensity: 20,
+    sceneryCount: 350
   }
 };
 
-export const generateTrackPath = (seed: number, complexity: number, scale: number, biome: BiomeType) => {
+export type FeatureType = 'JUMP' | 'TUNNEL' | 'BANKED';
+
+export interface TrackFeature {
+    type: FeatureType;
+    start: number; // 0 to 1
+    end: number;   // 0 to 1
+    intensity: number;
+}
+
+export const getTrackFeatures = (biome: BiomeType): TrackFeature[] => {
+    switch (biome) {
+        case BiomeType.DESERT:
+            return [
+                { type: 'JUMP', start: 0.1, end: 0.18, intensity: 15 }, // Smoother jump
+                { type: 'BANKED', start: 0.35, end: 0.55, intensity: 8 }, 
+                { type: 'JUMP', start: 0.7, end: 0.8, intensity: 25 }, 
+            ];
+        case BiomeType.CITY:
+            return [
+                 { type: 'TUNNEL', start: 0.2, end: 0.35, intensity: 0 },
+                 { type: 'BANKED', start: 0.5, end: 0.7, intensity: 15 },
+                 { type: 'TUNNEL', start: 0.85, end: 0.95, intensity: 0 } 
+            ];
+        case BiomeType.SNOW:
+            return [
+                 { type: 'BANKED', start: 0.15, end: 0.35, intensity: 12 },
+                 { type: 'TUNNEL', start: 0.5, end: 0.6, intensity: 0 },
+                 { type: 'JUMP', start: 0.8, end: 0.9, intensity: 18 }
+            ];
+        default: return [];
+    }
+};
+
+export const generateTrackPath = (seed: number, complexity: number, scale: number, biome: BiomeType, features: TrackFeature[]) => {
     const points: THREE.Vector3[] = [];
-    const segments = 400; // Increased resolution for smoother physics
+    const segments = 400; 
     
-    for (let i = 0; i < segments; i++) {
+    // Simplification: Less erratic random noise, more smooth curves
+    const rX = scale * 1.8;
+    const rZ = scale * 1.4;
+
+    for (let i = 0; i <= segments; i++) {
         const t = i / segments;
         const theta = t * Math.PI * 2;
         
-        // Base Oval/Figure-8 shape
-        let x = Math.cos(theta) * scale;
-        let z = Math.sin(theta) * scale * 1.5;
+        // Base Shape: Smooth Ellipse with slight distortion
+        let x = Math.cos(theta) * rX;
+        let z = Math.sin(theta) * rZ;
         
-        // Noise Application
-        let noiseAmp = complexity;
-        // Reduce noise in special sections for playability
-        if (t > 0.45 && t < 0.55) noiseAmp *= 0.3; // Jump area
-        if (t > 0.65 && t < 0.78) noiseAmp *= 0.1; // Tunnel area
+        // Add very low frequency noise for variety without sharp turns
+        // Using periodic functions ensures the loop closes perfectly
+        x += Math.cos(theta * 2 + seed) * (rX * 0.15);
+        z += Math.sin(theta * 3 + seed) * (rZ * 0.1);
 
-        x += Math.cos(theta * 3 + seed) * noiseAmp * 1.5;
-        z += Math.sin(theta * 4 + seed) * noiseAmp * 1.5;
+        // Calculate base terrain height
+        let y = getTerrainHeight(x, z, biome) + 6; 
+
+        // Apply Features smoothly
+        let featureMod = 0;
+        const inFeature = features.find(f => t >= f.start && t <= f.end);
         
-        // Base Terrain Height integration
-        let terrainH = getTerrainHeight(x, z, biome);
-        let y = terrainH + 2;
+        if (inFeature) {
+            const localT = (t - inFeature.start) / (inFeature.end - inFeature.start); 
+            // Smooth easing (Hermite-like)
+            const smoothT = localT * localT * (3 - 2 * localT);
 
-        // --- DYNAMIC ELEMENTS ---
-
-        // 1. The Big Jump (t: 0.45 - 0.55)
-        if (t > 0.45 && t < 0.55) {
-            const jt = (t - 0.45) / 0.1; // 0 to 1
-            // Smoother sine wave for ramp up and down
-            y += Math.sin(jt * Math.PI) * 50; 
+            if (inFeature.type === 'JUMP') {
+                // Sine wave ramp
+                featureMod += Math.sin(localT * Math.PI) * inFeature.intensity;
+            } 
+            else if (inFeature.type === 'TUNNEL') {
+                // Flatten and dip
+                featureMod -= Math.sin(localT * Math.PI) * 15; 
+                y = getTerrainHeight(x, z, biome) * 0.5; // Reduce terrain influence in tunnel
+            }
+            else if (inFeature.type === 'BANKED') {
+                // Banked turns affect rotation mostly, but here we add slight elevation wave
+                featureMod += Math.sin(localT * Math.PI * 2) * inFeature.intensity * 0.3;
+            }
+        } else {
+             // Gentle global undulation
+             featureMod += Math.sin(theta * 3) * 5; 
         }
 
-        // 2. The Tunnel (t: 0.65 - 0.78)
-        if (t > 0.65 && t < 0.78) {
-             // Force track lower to cut through terrain or stay flat
-             // relative to the average noise
-             y = terrainH * 0.4; 
-        }
-
-        // 3. Technical Section (undulation)
-        if (t > 0.1 && t < 0.3) {
-            y += Math.sin(t * 20) * 15;
+        y += featureMod;
+        
+        // Clamp Y to prevent going underground too deep (unless tunnel)
+        if (!inFeature || inFeature.type !== 'TUNNEL') {
+             y = Math.max(y, -10);
         }
 
         points.push(new THREE.Vector3(x, y, z));
     }
     
-    // Ensure loop is perfectly closed by explicitly setting last point to first?
-    // CatmullRomCurve3(closed=true) handles this, but points must align well.
-    // The sine/cos generation guarantees t=0 and t=1 are close.
-    
-    return new THREE.CatmullRomCurve3(points, true, 'catmullrom', 0.05);
+    return new THREE.CatmullRomCurve3(points, true, 'catmullrom', 0.2); // Increased tension for smoother curve
 };
 
 export const createRoadTexture = () => {
@@ -202,74 +249,52 @@ export const createRoadTexture = () => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return new THREE.Texture();
 
-    // 1. Base Asphalt (Darker for contrast)
-    ctx.fillStyle = '#151515';
+    // 1. Asphalt
+    ctx.fillStyle = '#181818';
     ctx.fillRect(0, 0, 1024, 1024);
     
-    // Noise/Gravel texture
-    for (let i = 0; i < 500000; i++) {
-        const v = Math.random() * 40;
-        ctx.fillStyle = `rgba(${v},${v},${v}, 0.5)`;
+    // Grain
+    for (let i = 0; i < 250000; i++) {
+        const v = Math.random() * 45;
+        ctx.fillStyle = `rgba(${v},${v},${v}, 0.2)`;
         ctx.fillRect(Math.random() * 1024, Math.random() * 1024, 2, 2);
     }
 
-    // 2. Shoulders (Rumble Strips) - High Contrast
-    const shoulderWidth = 128; // Approx 12.5% on each side
-    const segmentH = 64;
+    // 2. High Contrast Rumble Strips
+    const shoulderW = 140; 
+    const segH = 128;
     
-    for(let y=0; y<1024; y+=segmentH) {
-        const isRed = (y / segmentH) % 2 === 0;
+    for(let y=0; y<1024; y+=segH) {
+        const isRed = (y / segH) % 2 === 0;
         
-        // Left Strip
-        ctx.fillStyle = isRed ? '#cc2222' : '#eeeeee';
-        ctx.fillRect(0, y, shoulderWidth, segmentH);
+        // Left
+        ctx.fillStyle = isRed ? '#cc0000' : '#eeeeee';
+        ctx.fillRect(0, y, shoulderW, segH);
         
-        // Right Strip
-        ctx.fillStyle = isRed ? '#cc2222' : '#eeeeee';
-        ctx.fillRect(1024 - shoulderWidth, y, shoulderWidth, segmentH);
+        // Right
+        ctx.fillStyle = isRed ? '#cc0000' : '#eeeeee';
+        ctx.fillRect(1024 - shoulderW, y, shoulderW, segH);
     }
     
-    // Shoulder shadow gradient (Depth)
-    const gradL = ctx.createLinearGradient(shoulderWidth, 0, shoulderWidth + 40, 0);
-    gradL.addColorStop(0, 'rgba(0,0,0,0.8)');
-    gradL.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = gradL;
-    ctx.fillRect(shoulderWidth, 0, 40, 1024);
-
-    const gradR = ctx.createLinearGradient(1024 - shoulderWidth, 0, 1024 - shoulderWidth - 40, 0);
-    gradR.addColorStop(0, 'rgba(0,0,0,0.8)');
-    gradR.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = gradR;
-    ctx.fillRect(1024 - shoulderWidth - 40, 0, 40, 1024);
-
-    // 3. Lane Lines (Center) - Neon style if City, white otherwise
+    // Sharp Lines defining track edge
     ctx.fillStyle = '#ffffff';
-    ctx.shadowBlur = 10;
-    ctx.shadowColor = '#ffffff';
-    
-    // Dashed lines
-    const dashH = 80;
-    const dashGap = 60;
-    for(let y=0; y<1024; y+= (dashH + dashGap)) {
-         ctx.fillRect(1024 * 0.33, y, 12, dashH); 
-         ctx.fillRect(1024 * 0.66, y, 12, dashH);
-    }
-    ctx.shadowBlur = 0;
+    ctx.fillRect(shoulderW, 0, 8, 1024);
+    ctx.fillRect(1024 - shoulderW - 8, 0, 8, 1024);
 
-    // 4. Tire Marks (Permanent skidmarks on texture)
-    ctx.globalAlpha = 0.2;
-    ctx.fillStyle = '#000';
-    ctx.filter = 'blur(4px)';
-    ctx.fillRect(350, 0, 80, 1024);
-    ctx.fillRect(650, 0, 80, 1024);
-    ctx.filter = 'none';
-    ctx.globalAlpha = 1.0;
+    // 3. Center Dashed Lines
+    ctx.fillStyle = '#ffffff';
+    const dashH = 100;
+    const dashGap = 80;
+    for(let y=0; y<1024; y+= (dashH + dashGap)) {
+         ctx.fillRect(1024 * 0.35, y, 12, dashH); 
+         ctx.fillRect(1024 * 0.65, y, 12, dashH);
+    }
 
     const tex = new THREE.CanvasTexture(canvas);
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.RepeatWrapping;
     tex.anisotropy = 16;
-    tex.repeat.set(1, 80); // Higher repeat for speed sensation
+    tex.repeat.set(1, 60); 
     return tex;
 };
 
@@ -280,23 +305,21 @@ export const createTunnelTexture = () => {
     const ctx = canvas.getContext('2d');
     if(!ctx) return new THREE.Texture();
 
-    // Dark metallic panels
-    ctx.fillStyle = '#111115';
+    ctx.fillStyle = '#0a0a0a';
     ctx.fillRect(0,0,512,512);
 
-    // Grid lines
+    // Sci-fi panels
     ctx.strokeStyle = '#333';
     ctx.lineWidth = 4;
-    ctx.beginPath();
     for(let i=0; i<=512; i+=64) {
+        ctx.beginPath();
         ctx.moveTo(0, i); ctx.lineTo(512, i);
-        ctx.moveTo(i, 0); ctx.lineTo(i, 512);
+        ctx.stroke();
     }
-    ctx.stroke();
-
+    
     // Lights
     ctx.fillStyle = '#00ffff';
-    ctx.shadowBlur = 15;
+    ctx.shadowBlur = 20;
     ctx.shadowColor = '#00ffff';
     for(let y=32; y<512; y+=128) {
         ctx.fillRect(20, y, 15, 64);
@@ -317,15 +340,16 @@ export const createBuildingTexture = () => {
     const ctx = canvas.getContext('2d');
     if(!ctx) return new THREE.Texture();
 
-    ctx.fillStyle = '#050510';
+    ctx.fillStyle = '#050505';
     ctx.fillRect(0,0,128,256);
 
-    for(let y=10; y<240; y+=15) {
-        for(let x=10; x<110; x+=20) {
+    // Windows
+    for(let y=20; y<240; y+=20) {
+        for(let x=10; x<110; x+=25) {
             if(Math.random() > 0.4) {
-                 const hue = Math.random() > 0.5 ? '#ff00ff' : '#00ffff';
+                 const hue = Math.random() > 0.5 ? '#ff00ff' : '#00aaff';
                  ctx.fillStyle = hue;
-                 ctx.fillRect(x, y, 12, 12);
+                 ctx.fillRect(x, y, 15, 12);
             }
         }
     }
@@ -355,27 +379,25 @@ export const createDecalTexture = (type: DecalType, primaryColor: string) => {
     canvas.height = 512;
     const ctx = canvas.getContext('2d');
     if (!ctx) return new THREE.Texture();
-
     ctx.clearRect(0, 0, 512, 512);
 
     if (type === DecalType.STRIPE) {
         ctx.fillStyle = '#ffffff';
-        ctx.fillRect(230, 0, 52, 512);
+        ctx.fillRect(200, 0, 112, 512);
     } else if (type === DecalType.FLAME) {
-        ctx.fillStyle = '#ff5500';
+        ctx.fillStyle = '#ff8800';
         ctx.beginPath();
         ctx.moveTo(256, 512);
-        ctx.quadraticCurveTo(100, 256, 256, 0);
-        ctx.quadraticCurveTo(400, 256, 256, 512);
+        ctx.bezierCurveTo(100, 400, 0, 200, 256, 0);
+        ctx.bezierCurveTo(512, 200, 412, 400, 256, 512);
         ctx.fill();
     } else if (type === DecalType.SKULL) {
-        ctx.fillStyle = '#dddddd';
-        ctx.font = '300px serif';
+        ctx.fillStyle = '#eeeeee';
+        ctx.font = '250px sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText('☠️', 256, 256);
     }
-
     return new THREE.CanvasTexture(canvas);
 };
 
@@ -386,34 +408,31 @@ export const createRimTexture = (type: RimType) => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return new THREE.Texture();
 
-    ctx.fillStyle = '#333';
+    ctx.fillStyle = '#222';
     ctx.fillRect(0,0,256,256);
-
-    ctx.strokeStyle = '#888';
-    ctx.lineWidth = 10;
+    ctx.strokeStyle = '#aaa';
+    ctx.lineWidth = 8;
     ctx.beginPath();
-    ctx.arc(128, 128, 120, 0, Math.PI*2);
+    ctx.arc(128, 128, 110, 0, Math.PI*2);
     ctx.stroke();
 
     if (type === RimType.SPORT) {
-        ctx.lineWidth = 15;
-        for(let i=0; i<5; i++) {
-            const a = (i/5) * Math.PI*2;
+        ctx.lineWidth = 12;
+        for(let i=0; i<6; i++) {
+            const a = (i/6) * Math.PI*2;
             ctx.beginPath();
             ctx.moveTo(128, 128);
-            ctx.lineTo(128 + Math.cos(a)*120, 128 + Math.sin(a)*120);
+            ctx.lineTo(128 + Math.cos(a)*110, 128 + Math.sin(a)*110);
             ctx.stroke();
         }
     } else if (type === RimType.NEON) {
-        ctx.strokeStyle = '#00ffff';
-        ctx.lineWidth = 8;
+        ctx.strokeStyle = '#00ffcc';
+        ctx.lineWidth = 6;
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = '#00ffcc';
         ctx.beginPath();
-        ctx.arc(128, 128, 100, 0, Math.PI*2);
-        ctx.stroke();
-        ctx.shadowBlur = 20;
-        ctx.shadowColor = '#00ffff';
+        ctx.arc(128, 128, 90, 0, Math.PI*2);
         ctx.stroke();
     }
-
     return new THREE.CanvasTexture(canvas);
 };

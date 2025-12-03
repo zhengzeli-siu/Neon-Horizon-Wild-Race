@@ -121,7 +121,8 @@ const App = () => {
         quality: 'HIGH',
         musicVolume: 50,
         sfxVolume: 80,
-        sensitivity: 50
+        sensitivity: 50,
+        aiCount: 5
     });
 
     const menuBgmRef = useRef<HTMLAudioElement | null>(null);
@@ -178,7 +179,7 @@ const App = () => {
         setCurrentLap(1);
         setNitroLevel(100);
         setCurrentHealth(activeCar.maxHealth);
-        setCurrentRank(6);
+        setCurrentRank(settings.aiCount + 1);
 
         // 3秒倒计时逻辑由 GameScene 驱动回调
         setTimeout(() => setRaceStatus(RaceStatus.RACING), 4000); 
@@ -335,10 +336,9 @@ const App = () => {
                 <div className="mb-6">
                     <div className="flex justify-between mb-2">
                         <label className="block text-cyan-400 font-bold">AI 车手数量</label>
-                        <span className="text-white font-mono">5</span>
+                        <span className="text-white font-mono">{settings.aiCount}</span>
                     </div>
-                    <input type="range" min="1" max="10" value={5} disabled className="w-full h-2 bg-gray-700 rounded-lg opacity-50 cursor-not-allowed" />
-                    <div className="text-xs text-gray-500 mt-1">目前固定为5人</div>
+                    <input type="range" min="2" max="6" value={settings.aiCount} onChange={(e) => setSettings(s => ({...s, aiCount: parseInt(e.target.value)}))} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500" />
                 </div>
                 <div className="mb-6">
                     <div className="flex justify-between mb-2">
@@ -541,7 +541,7 @@ const App = () => {
                     </div>
                     <div className="bg-black/60 backdrop-blur px-6 py-3 border-l-4 border-purple-500 skew-x-[-10deg]">
                         <div className="text-xs text-purple-400 font-bold tracking-widest skew-x-[10deg]">排名 POS</div>
-                        <div className="text-4xl font-mono font-bold text-white skew-x-[10deg]">{currentRank} <span className="text-sm text-gray-400">/ 6</span></div>
+                        <div className="text-4xl font-mono font-bold text-white skew-x-[10deg]">{currentRank} <span className="text-sm text-gray-400">/ {settings.aiCount + 1}</span></div>
                     </div>
                 </div>
                 <div className="bg-black/60 backdrop-blur px-6 py-3 border-r-4 border-yellow-500 skew-x-[10deg]">
@@ -617,6 +617,7 @@ const App = () => {
                         quality={settings.quality}
                         sfxVolume={settings.sfxVolume}
                         sensitivity={settings.sensitivity}
+                        aiCount={settings.aiCount}
                    />
                 </Canvas>
             </div>
