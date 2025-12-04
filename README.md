@@ -19,44 +19,52 @@
 
 ## 🚀 如何让别人通过链接直接玩？ (部署指南)
 
-要让游戏在其他笔记本或手机上通过链接直接运行，推荐使用 **Vercel** 进行免费部署：
+### 推荐：使用 Vercel (最简单)
 
 1.  将本项目代码上传到您的 **GitHub** 仓库。
 2.  访问 [Vercel.com](https://vercel.com) 并使用 GitHub 账号登录。
 3.  点击 **"Add New Project"**，导入本仓库。
 4.  直接点击 **"Deploy"** (Vercel 会自动识别 React 环境)。
 5.  等待约 1 分钟，您将获得一个类似 `https://xxx.vercel.app` 的网址。
-6.  **回到本 README 文件，修改顶部的链接，将您的网址填入。**
+
+### 替代方案：GitHub Pages
+
+如果您希望直接在 GitHub 上托管：
+
+1.  **修改配置**：打开 `package.json`，将 `"homepage"` 字段修改为 `https://<您的用户名>.github.io/<仓库名>/`。
+2.  **安装依赖并部署**：
+    ```bash
+    npm install
+    npm run deploy
+    ```
+3.  脚本会自动运行构建并将代码推送到 `gh-pages` 分支。之后您可以在仓库的 Settings -> Pages 中看到在线地址。
 
 ---
 
 ## 如何本地运行
-**克隆项目**
-```bash
-git clone https://github.com/zhengzeli-siu/wild_race_3D.git
-```
-如果您想在本地开发或调试：
 
 ### 前置要求
 1.  安装 **Node.js** (推荐 v16 或更高版本)。
 
 ### 步骤
-1.  **安装依赖**
+1.  **克隆项目**
+    ```bash
+    git clone https://github.com/zhengzeli-siu/wild_race_3D.git
+    cd wild_race_3D
+    ```
+
+2.  **安装依赖**
     ```bash
     npm install
-    # 如果报错，请先运行 npm init -y，然后运行:
-    # npm install react react-dom three @types/three @react-three/fiber @react-three/drei @react-three/postprocessing simplex-noise autoprefixer postcss tailwindcss
     ```
 
-2.  **启动开发服务器**
+3.  **启动开发服务器**
     ```bash
-    npm start
-    # 或者如果使用 Vite:
-    # npm run dev
+    npm run dev
     ```
 
-3.  **开始游戏**
-    打开浏览器访问 `http://localhost:3000`。
+4.  **开始游戏**
+    打开浏览器访问 `http://localhost:5173`。
 
 ## 操作说明
 | 按键 | 功能 |
@@ -80,13 +88,8 @@ git clone https://github.com/zhengzeli-siu/wild_race_3D.git
 ## 🤝 贡献与致谢
 本项目参考了 `javascript-racer` 和 `OutRun` 的经典算法。欢迎提交 Issue 或 Pull Request 帮助改进游戏！
 
----
-*Powered by Python & Pygame*
-
 ## 📞联系方式
 如有任何问题或建议，请联系：
 - 项目作者: Zhengze Li
 - 邮箱: zhengzeli44@gmail.com
 - GitHub: [github.com/zhengzeli-siu](https://github.com/zhengzeli-siu)
-
-

@@ -129,10 +129,17 @@ const App = () => {
     const menuBgmRef = useRef<HTMLAudioElement | null>(null);
     const raceBgmRef = useRef<HTMLAudioElement | null>(null);
 
+    // Helper to get asset paths that work both locally and on GitHub Pages (subpath)
+    const getAssetUrl = (path: string) => {
+        // Simple relative path without leading slash works best with base: './' in vite config
+        return path.startsWith('/') ? path.slice(1) : path;
+    };
+
     useEffect(() => {
-        menuBgmRef.current = new Audio('/music/menu_theme.mp3');
+        // Use relative paths for audio
+        menuBgmRef.current = new Audio(getAssetUrl('music/menu_theme.mp3'));
         menuBgmRef.current.loop = true;
-        raceBgmRef.current = new Audio('/music/race_theme.mp3');
+        raceBgmRef.current = new Audio(getAssetUrl('music/race_theme.mp3'));
         raceBgmRef.current.loop = true;
         return () => {
             menuBgmRef.current?.pause();
