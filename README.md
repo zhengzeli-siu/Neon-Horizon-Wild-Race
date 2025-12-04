@@ -31,7 +31,7 @@
 
 ---
 
-## 如何本地运行 (Local Development)
+## 如何本地运行
 **克隆项目**
 ```bash
 git clone https://github.com/zhengzeli-siu/wild_race_3D.git

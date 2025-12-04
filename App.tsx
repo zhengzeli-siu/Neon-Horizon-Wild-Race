@@ -92,6 +92,7 @@ const App = () => {
     const [currentHealth, setCurrentHealth] = useState(100);
     const [currentRank, setCurrentRank] = useState(1);
     const [countdownValue, setCountdownValue] = useState(3);
+    const [isNitroActive, setIsNitroActive] = useState(false);
     
     // 结算数据
     const [lastScore, setLastScore] = useState(0);
@@ -139,6 +140,22 @@ const App = () => {
         };
     }, []);
 
+    // 监听 ESC 键实现暂停
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                if (gameState === GameState.PLAYING) {
+                    setGameState(GameState.PAUSED);
+                } else if (gameState === GameState.PAUSED) {
+                    setGameState(GameState.PLAYING);
+                }
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [gameState]);
+
     useEffect(() => {
         if (menuBgmRef.current) menuBgmRef.current.volume = settings.musicVolume / 100;
         if (raceBgmRef.current) raceBgmRef.current.volume = settings.musicVolume / 100;
@@ -157,11 +174,20 @@ const App = () => {
         if (gameState === GameState.PLAYING) {
             stopAudio(menuBgmRef.current);
             playAudio(raceBgmRef.current);
+        } else if (gameState === GameState.PAUSED) {
+            // 暂停时保持背景音乐，或者可以降低音量
+            if (raceBgmRef.current) raceBgmRef.current.volume = (settings.musicVolume / 100) * 0.3;
         } else {
             stopAudio(raceBgmRef.current);
             if (menuBgmRef.current && menuBgmRef.current.paused) playAudio(menuBgmRef.current);
+            if (menuBgmRef.current) menuBgmRef.current.volume = settings.musicVolume / 100;
         }
-    }, [gameState]);
+        
+        // 恢复音量
+        if (gameState === GameState.PLAYING && raceBgmRef.current) {
+            raceBgmRef.current.volume = settings.musicVolume / 100;
+        }
+    }, [gameState, settings.musicVolume]);
 
     useEffect(() => {
         localStorage.setItem('neon_race_save_v2', JSON.stringify(playerState));
@@ -182,7 +208,10 @@ const App = () => {
         setCurrentRank(settings.aiCount + 1);
 
         // 3秒倒计时逻辑由 GameScene 驱动回调
-        setTimeout(() => setRaceStatus(RaceStatus.RACING), 4000); 
+        setTimeout(() => {
+            // 只有在没有暂停的情况下才开始
+            setRaceStatus(prev => prev === RaceStatus.PAUSED ? prev : RaceStatus.RACING);
+        }, 4000); 
     };
 
     const handleCountdown = (val: number) => {
@@ -215,6 +244,7 @@ const App = () => {
         setCurrentScore(Math.floor(state.distance * 1000));
         setCurrentSpeed(state.speed); // Keep precise for gauge
         setNitroLevel(state.nitroLevel);
+        setIsNitroActive(state.isNitroActive);
         setCurrentHealth(state.health);
         setCurrentRank(state.rank);
         setCurrentLap(state.lap);
@@ -319,6 +349,30 @@ const App = () => {
                     </tbody>
                 </table>
              </div>
+        </div>
+    );
+
+    const renderPauseMenu = () => (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 z-50 backdrop-blur-sm">
+            <h2 className="text-6xl font-black text-white mb-8 font-['Orbitron'] tracking-widest text-shadow-neon">PAUSED</h2>
+            <div className="flex flex-col gap-4 w-72">
+                <button 
+                    onClick={() => setGameState(GameState.PLAYING)} 
+                    className="px-6 py-4 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded shadow-[0_0_20px_rgba(6,182,212,0.6)] transition-all font-['Rajdhani'] text-2xl uppercase tracking-widest"
+                >
+                    继续比赛 (RESUME)
+                </button>
+                <button 
+                    onClick={() => {
+                        setGameState(GameState.MENU);
+                        setRaceStatus(RaceStatus.ABORTED);
+                    }} 
+                    className="px-6 py-3 border border-red-500 hover:bg-red-900/50 text-red-300 font-bold rounded transition-all font-['Noto_Sans_SC'] text-xl"
+                >
+                    退出比赛 (EXIT)
+                </button>
+            </div>
+            <div className="mt-8 text-gray-400">按下 <kbd className="bg-gray-700 px-2 py-1 rounded text-white">Esc</kbd> 继续</div>
         </div>
     );
 
@@ -591,7 +645,7 @@ const App = () => {
                                 key={i} 
                                 className={`h-6 flex-1 border border-gray-700 transition-all ${
                                     i < (nitroLevel / 10) 
-                                        ? (nitroLevel > 95 ? 'bg-white shadow-[0_0_10px_#fff]' : 'bg-cyan-500') 
+                                        ? (isNitroActive ? 'bg-white shadow-[0_0_10px_#fff]' : 'bg-cyan-500') 
                                         : 'bg-gray-900'
                                 }`}
                              />
@@ -613,7 +667,10 @@ const App = () => {
                         onGameOver={handleGameOver}
                         onScoreUpdate={handleHUDUpdate}
                         onCountdown={handleCountdown}
-                        raceStatus={raceStatus}
+                        // 如果状态是暂停，就传给场景一个暂停状态，虽然场景可能使用内部的暂停逻辑，
+                        // 但通过 raceStatus 传递是最安全的。
+                        // 由于 types.ts 中 RaceStatus 有 PAUSED，我们可以直接使用。
+                        raceStatus={gameState === GameState.PAUSED ? RaceStatus.PAUSED : raceStatus}
                         quality={settings.quality}
                         sfxVolume={settings.sfxVolume}
                         sensitivity={settings.sensitivity}
@@ -626,6 +683,7 @@ const App = () => {
             {gameState === GameState.TRACK_SELECT && renderTrackSelect()}
             {gameState === GameState.SHOP && renderShop()}
             {gameState === GameState.PLAYING && renderHUD()}
+            {gameState === GameState.PAUSED && renderPauseMenu()}
             {gameState === GameState.GAME_OVER && renderGameOver()}
         </div>
     );

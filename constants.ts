@@ -1,4 +1,5 @@
 
+
 import { BiomeType, CarStats, TrackConfig, WeatherType, DecalType, RimType } from './types';
 import * as THREE from 'three';
 import { createNoise2D } from 'simplex-noise';
@@ -21,6 +22,8 @@ export const getTerrainHeight = (x: number, z: number, biome: BiomeType) => {
         y = Math.abs(y) * 1.5; // Rolling dunes
     } else if (biome === BiomeType.CITY) {
         y = Math.floor(y / 15) * 15; // Terraced levels
+    } else if (biome === BiomeType.VOLCANO) {
+        y = Math.abs(y) * 2.2 + noise2D(x * 0.01, z * 0.01) * 5; // Jagged volcanic terrain
     }
     
     return Math.max(-40, y);
@@ -142,6 +145,20 @@ export const TRACKS: Record<BiomeType, TrackConfig> = {
     length: 450,
     curveIntensity: 20,
     sceneryCount: 350
+  },
+  [BiomeType.VOLCANO]: {
+    id: BiomeType.VOLCANO,
+    name: '地狱熔炉',
+    description: '危险的火山地带，崎岖不平，岩浆涌动。',
+    groundColor: '#1a0505',
+    gridColor: '#ff3300',
+    fogColor: '#551100',
+    skyColor: '#200500',
+    difficultyMultiplier: 2.5,
+    weather: WeatherType.CLEAR,
+    length: 500,
+    curveIntensity: 25,
+    sceneryCount: 300
   }
 };
 
@@ -173,6 +190,12 @@ export const getTrackFeatures = (biome: BiomeType): TrackFeature[] => {
                  { type: 'BANKED', start: 0.15, end: 0.35, intensity: 12 },
                  { type: 'TUNNEL', start: 0.5, end: 0.6, intensity: 0 },
                  { type: 'JUMP', start: 0.8, end: 0.9, intensity: 18 }
+            ];
+        case BiomeType.VOLCANO:
+            return [
+                 { type: 'JUMP', start: 0.15, end: 0.25, intensity: 25 },
+                 { type: 'BANKED', start: 0.45, end: 0.65, intensity: 20 },
+                 { type: 'TUNNEL', start: 0.8, end: 0.9, intensity: 0 }
             ];
         default: return [];
     }

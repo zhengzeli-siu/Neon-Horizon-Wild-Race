@@ -5,13 +5,15 @@ export enum GameState {
   PLAYING = 'PLAYING',
   GAME_OVER = 'GAME_OVER',
   TRACK_SELECT = 'TRACK_SELECT',
-  SETTINGS = 'SETTINGS'
+  SETTINGS = 'SETTINGS',
+  PAUSED = 'PAUSED'
 }
 
 export enum BiomeType {
   DESERT = 'DESERT',
   SNOW = 'SNOW',
-  CITY = 'CITY'
+  CITY = 'CITY',
+  VOLCANO = 'VOLCANO'
 }
 
 export enum WeatherType {
@@ -25,7 +27,9 @@ export enum RaceStatus {
   COUNTDOWN = 'COUNTDOWN',
   RACING = 'RACING',
   FINISHED = 'FINISHED',
-  WRECKED = 'WRECKED'
+  WRECKED = 'WRECKED',
+  ABORTED = 'ABORTED',
+  PAUSED = 'PAUSED'
 }
 
 export enum CollisionType {
@@ -117,6 +121,15 @@ export interface RacerState {
   color: string;
   velocity: { x: number, z: number }; // 速度矢量
   lastLaneChange: number;
+  
+  // Physics / Rigid Body Properties
+  lateralVelocity: number; // Sideways momentum from impacts
+  angularVelocity: number; // Spin speed
+  spinAngle: number; // Current visual rotation offset (0 to 360)
+
+  // AI Personality Traits
+  skill: number; // 0.0 - 1.0: Cornering ability, line holding
+  aggression: number; // 0.0 - 1.0: Overtaking frequency, blocking, nitro usage
 }
 
 export interface Particle {
