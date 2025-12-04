@@ -1,7 +1,7 @@
 
 # 霓虹地平线：狂野飙车 3D (Neon Horizon: Wild Race)
 
-[![在线试玩](https://img.shields.io/badge/🎮%20在线试玩-点击立即开始-00ffff?style=for-the-badge&logo=google-chrome&logoColor=white)](https://ai.studio/apps/drive/1Pa4A9do9TY5RUkvy6tu-fqMYTK5skrlF)
+[![在线试玩](https://img.shields.io/badge/🎮%20在线试玩-点击立即开始-00ffff?style=for-the-badge&logo=google-chrome&logoColor=white)](https://ai.studio/apps/drive/1Pa4A9do9TY5RUkvy6tu-fqMYTK5skrlF?fullscreenApplet=true)
 
 
 ## 项目简介
