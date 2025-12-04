@@ -19,22 +19,22 @@ export const GAME_CONFIG = {
 
     // --- 玩家设置 (PLAYER SETTINGS) ---
     PLAYER: {
-        SPEED_MULTIPLIER: 2.5,      // 速度倍率：数值越大，车速越快 (基础速度 x 倍率)
+        SPEED_MULTIPLIER: 1.0,      // 速度倍率：数值越大，车速越快 (基础速度 x 倍率)
         NITRO_BOOST_POWER: 1.5,     // 氮气加速倍率：开启氮气时，速度提升多少倍 (1.5 = 提升50%)
         NITRO_DRAIN_RATE: 40,       // 氮气消耗速度：数值越大，氮气用得越快 (每秒消耗百分比)
         NITRO_RECHARGE_RATE: 10,    // 氮气自然恢复速度：数值越大，恢复越快
         DRIFT_GRIP_LOSS: 0.95,      // 漂移时的速度保留：1.0 为不减速，0.9 为减速10%
         STEERING_SENSITIVITY: 1.0,  // 转向灵敏度基础值
         MAX_HEALTH_LOSS: 10,        // 撞墙时每秒扣除的耐久度
-        WALL_BOUNCE: 0.5,           // 撞墙反弹力度 (0.0 - 1.0)
+        WALL_BOUNCE: 1.0,           // 撞墙反弹力度 (0.0 - 1.0)
     },
 
     // --- AI 对手设置 (AI SETTINGS) ---
     AI: {
-        SPEED_VARIANCE: 0.1,        // 速度随机波动范围 (让 AI 速度不完全一致)
-        CORNER_SKILL_BASE: 0.4,     // 基础过弯能力 (0.0 - 1.0)
-        AGRESSION_BONUS: 0.1,       // 攻击性对速度的加成影响
-        LANE_CHANGE_SPEED: 2.0,     // AI 变道的速度
+        SPEED_VARIANCE: 0.5,        // 速度随机波动范围 (让 AI 速度不完全一致)
+        CORNER_SKILL_BASE: 1,     // 基础过弯能力 (0.0 - 1.0)
+        AGRESSION_BONUS: 0.2,       // 攻击性对速度的加成影响
+        LANE_CHANGE_SPEED: 3.0,     // AI 变道的速度
         COLLISION_AVOID_DIST: 0.03, // AI 检测前方车辆的距离 (0.0 - 1.0 赛道比例)
     },
 
@@ -42,14 +42,14 @@ export const GAME_CONFIG = {
     PHYSICS: {
         FRICTION_LATERAL: 0.92,     // 横向摩擦力：数值越小，车辆越容易侧滑 (0.0 - 1.0)
         FRICTION_ANGULAR: 0.90,     // 旋转阻尼：数值越小，车辆打转后停下来的越慢
-        COLLISION_BOUNCE: 0.8,      // 车辆互撞时的弹力系数
-        COLLISION_SPIN: 2.0,        // 撞击导致的旋转力度系数
+        COLLISION_BOUNCE: 1.0,      // 车辆互撞时的弹力系数
+        COLLISION_SPIN: 4.0,        // 撞击导致的旋转力度系数
         GRAVITY: 20,                // 粒子下落重力
     },
 
     // --- 赛道设置 (TRACK SETTINGS) ---
     TRACK: {
-        LANE_WIDTH: 6,              // 单个车道宽度
+        LANE_WIDTH: 9,              // 单个车道宽度
         SHOULDER_WIDTH: 5,          // 路肩宽度
         SEGMENTS: 400,              // 赛道平滑度 (分段数)
         LOOP_TENSION: 0.2,          // 曲线张力
