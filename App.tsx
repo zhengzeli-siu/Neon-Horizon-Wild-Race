@@ -130,17 +130,22 @@ const App = () => {
     const raceBgmRef = useRef<HTMLAudioElement | null>(null);
 
     // Helper to get asset paths that work both locally and on GitHub Pages (subpath)
+    // Updated: using online URLs for reliable audio playback
     const getAssetUrl = (path: string) => {
-        // Simple relative path without leading slash works best with base: './' in vite config
+        // Fallback or online URLs for smoother experience
+        if (path.includes('menu_theme')) return 'https://cdn.pixabay.com/audio/2022/05/27/audio_1808fbf07a.mp3'; // "Beauty" - Soft Ambient
+        if (path.includes('race_theme')) return 'https://cdn.pixabay.com/audio/2024/09/16/audio_aaa30bc769.mp3'; // Cyberpunk Phonk
         return path.startsWith('/') ? path.slice(1) : path;
     };
 
     useEffect(() => {
-        // Use relative paths for audio
+        // Initialize Audio with Online Sources
         menuBgmRef.current = new Audio(getAssetUrl('music/menu_theme.mp3'));
         menuBgmRef.current.loop = true;
+        
         raceBgmRef.current = new Audio(getAssetUrl('music/race_theme.mp3'));
         raceBgmRef.current.loop = true;
+        
         return () => {
             menuBgmRef.current?.pause();
             raceBgmRef.current?.pause();
@@ -166,7 +171,7 @@ const App = () => {
     // Volume effect with Master Control
     useEffect(() => {
         const master = GAME_CONFIG.AUDIO.MASTER_VOLUME;
-        if (menuBgmRef.current) menuBgmRef.current.volume = (settings.musicVolume / 100) * master;
+        if (menuBgmRef.current) menuBgmRef.current.volume = (settings.musicVolume / 100) * master * 0.6; // Gentle menu music
         if (raceBgmRef.current) raceBgmRef.current.volume = (settings.musicVolume / 100) * master;
     }, [settings.musicVolume]);
 
@@ -190,7 +195,7 @@ const App = () => {
         } else {
             stopAudio(raceBgmRef.current);
             if (menuBgmRef.current && menuBgmRef.current.paused) playAudio(menuBgmRef.current);
-            if (menuBgmRef.current) menuBgmRef.current.volume = (settings.musicVolume / 100) * master;
+            if (menuBgmRef.current) menuBgmRef.current.volume = (settings.musicVolume / 100) * master * 0.6;
         }
         
         // 恢复音量
@@ -206,7 +211,32 @@ const App = () => {
     const activeCar = CARS.find(c => c.id === playerState.selectedCarId) || CARS[0];
     const activeTrackConfig = TRACKS[selectedTrack];
 
+    // UI Sound Helper
+    const playClickSound = () => {
+        try {
+            const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+            const ctx = new AudioContextClass();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            
+            osc.frequency.setValueAtTime(600, ctx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(1000, ctx.currentTime + 0.1);
+            
+            const master = GAME_CONFIG.AUDIO.MASTER_VOLUME;
+            const vol = (settings.sfxVolume / 100) * master * 0.5;
+
+            gain.gain.setValueAtTime(vol, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
+            
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start();
+            osc.stop(ctx.currentTime + 0.1);
+        } catch(e) {}
+    };
+
     const handleStartGame = () => {
+        playClickSound();
         setGameState(GameState.PLAYING);
         setRaceStatus(RaceStatus.COUNTDOWN);
         setCountdownValue(3);
@@ -262,6 +292,7 @@ const App = () => {
 
     const buyCar = (carId: string, price: number) => {
         if (playerState.coins >= price && !playerState.unlockedCars.includes(carId)) {
+            playClickSound();
             setPlayerState(prev => ({
                 ...prev,
                 coins: prev.coins - price,
@@ -273,12 +304,14 @@ const App = () => {
 
     const selectCar = (carId: string) => {
         if (playerState.unlockedCars.includes(carId)) {
+            playClickSound();
             setPlayerState(prev => ({ ...prev, selectedCarId: carId }));
         }
     };
 
     // Customization Logic
     const enterCustomization = (carId: string) => {
+        playClickSound();
         const saved = playerState.carCustomizations?.[carId] || { 
             color: CARS.find(c=>c.id===carId)?.color || '#fff', 
             decalId: DecalType.NONE, 
@@ -289,6 +322,7 @@ const App = () => {
     };
 
     const saveCustomization = () => {
+        playClickSound();
         if (editingCarId) {
             setPlayerState(prev => ({
                 ...prev,
@@ -326,13 +360,13 @@ const App = () => {
             <h2 className="text-2xl text-cyan-200 font-['Noto_Sans_SC'] mb-12 tracking-[0.5em]">霓虹地平线：狂野飙车</h2>
             
             <div className="flex flex-col gap-4 w-72">
-                <button onClick={() => setGameState(GameState.TRACK_SELECT)} className="px-6 py-4 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded shadow-[0_0_20px_rgba(6,182,212,0.6)] transition-all font-['Rajdhani'] text-2xl uppercase tracking-widest clip-path-slant flex justify-center items-center gap-2">
+                <button onClick={() => { playClickSound(); setGameState(GameState.TRACK_SELECT); }} className="px-6 py-4 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded shadow-[0_0_20px_rgba(6,182,212,0.6)] transition-all font-['Rajdhani'] text-2xl uppercase tracking-widest clip-path-slant flex justify-center items-center gap-2">
                     开始比赛
                 </button>
-                <button onClick={() => setGameState(GameState.SHOP)} className="px-6 py-3 border border-purple-500 hover:bg-purple-900/50 text-purple-300 font-bold rounded transition-all font-['Noto_Sans_SC'] text-xl">
+                <button onClick={() => { playClickSound(); setGameState(GameState.SHOP); }} className="px-6 py-3 border border-purple-500 hover:bg-purple-900/50 text-purple-300 font-bold rounded transition-all font-['Noto_Sans_SC'] text-xl">
                     车库 / 商店
                 </button>
-                <button onClick={() => setGameState(GameState.SETTINGS)} className="px-6 py-3 border border-gray-600 hover:bg-gray-800 text-gray-400 font-bold rounded transition-all font-['Noto_Sans_SC'] text-lg flex items-center justify-center gap-2">
+                <button onClick={() => { playClickSound(); setGameState(GameState.SETTINGS); }} className="px-6 py-3 border border-gray-600 hover:bg-gray-800 text-gray-400 font-bold rounded transition-all font-['Noto_Sans_SC'] text-lg flex items-center justify-center gap-2">
                     <SettingsIcon /> 设置
                 </button>
             </div>
@@ -367,15 +401,16 @@ const App = () => {
             <h2 className="text-6xl font-black text-white mb-8 font-['Orbitron'] tracking-widest text-shadow-neon">PAUSED</h2>
             <div className="flex flex-col gap-4 w-72">
                 <button 
-                    onClick={() => setGameState(GameState.PLAYING)} 
+                    onClick={() => { playClickSound(); setGameState(GameState.PLAYING); }} 
                     className="px-6 py-4 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded shadow-[0_0_20px_rgba(6,182,212,0.6)] transition-all font-['Rajdhani'] text-2xl uppercase tracking-widest"
                 >
                     继续比赛 (RESUME)
                 </button>
                 <button 
                     onClick={() => {
+                        playClickSound();
                         setGameState(GameState.MENU);
-                        setRaceStatus(RaceStatus.ABORTED);
+                        setRaceStatus(RaceStatus.READY); // RESET PHYSICS
                     }} 
                     className="px-6 py-3 border border-red-500 hover:bg-red-900/50 text-red-300 font-bold rounded transition-all font-['Noto_Sans_SC'] text-xl"
                 >
@@ -393,8 +428,8 @@ const App = () => {
                 <div className="mb-6">
                     <label className="block text-cyan-400 mb-2 font-bold">画质预设</label>
                     <div className="flex gap-4">
-                        <button onClick={() => setSettings(s => ({...s, quality: 'LOW'}))} className={`flex-1 py-2 rounded ${settings.quality === 'LOW' ? 'bg-cyan-600 text-white' : 'bg-gray-700 text-gray-400'}`}>性能</button>
-                        <button onClick={() => setSettings(s => ({...s, quality: 'HIGH'}))} className={`flex-1 py-2 rounded ${settings.quality === 'HIGH' ? 'bg-cyan-600 text-white' : 'bg-gray-700 text-gray-400'}`}>画质</button>
+                        <button onClick={() => { playClickSound(); setSettings(s => ({...s, quality: 'LOW'})); }} className={`flex-1 py-2 rounded ${settings.quality === 'LOW' ? 'bg-cyan-600 text-white' : 'bg-gray-700 text-gray-400'}`}>性能</button>
+                        <button onClick={() => { playClickSound(); setSettings(s => ({...s, quality: 'HIGH'})); }} className={`flex-1 py-2 rounded ${settings.quality === 'HIGH' ? 'bg-cyan-600 text-white' : 'bg-gray-700 text-gray-400'}`}>画质</button>
                     </div>
                 </div>
                 <div className="mb-6">
@@ -426,7 +461,7 @@ const App = () => {
                     </div>
                     <input type="range" min="0" max="100" value={settings.sfxVolume} onChange={(e) => setSettings(s => ({...s, sfxVolume: parseInt(e.target.value)}))} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500" />
                 </div>
-                <button onClick={() => setGameState(GameState.MENU)} className="w-full py-3 bg-gray-600 hover:bg-gray-500 text-white font-bold rounded mt-4">保存并返回</button>
+                <button onClick={() => { playClickSound(); setGameState(GameState.MENU); }} className="w-full py-3 bg-gray-600 hover:bg-gray-500 text-white font-bold rounded mt-4">保存并返回</button>
              </div>
         </div>
     );
@@ -438,7 +473,7 @@ const App = () => {
                 {Object.values(TRACKS).map((track) => (
                     <button 
                         key={track.id}
-                        onClick={() => setSelectedTrack(track.id)}
+                        onClick={() => { playClickSound(); setSelectedTrack(track.id); }}
                         className={`p-6 border-2 w-64 text-left transition-all relative overflow-hidden group ${selectedTrack === track.id ? 'border-cyan-400 bg-cyan-900/30' : 'border-gray-700 bg-gray-900/50 hover:border-gray-500'}`}
                     >
                         <h3 className="text-xl font-bold font-['Noto_Sans_SC'] mb-2 relative z-10">{track.name}</h3>
@@ -462,7 +497,7 @@ const App = () => {
              </div>
 
              <div className="flex gap-4">
-                <button onClick={() => setGameState(GameState.MENU)} className="px-6 py-2 border border-red-500 text-red-500 hover:bg-red-900/30 font-bold rounded">返回</button>
+                <button onClick={() => { playClickSound(); setGameState(GameState.MENU); }} className="px-6 py-2 border border-red-500 text-red-500 hover:bg-red-900/30 font-bold rounded">返回</button>
                 <button onClick={handleStartGame} className="px-12 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white font-bold text-xl hover:scale-105 transition-transform shadow-[0_0_20px_rgba(16,185,129,0.5)] rounded clip-path-slant">出击</button>
              </div>
         </div>
@@ -484,7 +519,7 @@ const App = () => {
                                 {['#ffffff', '#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff', '#111111'].map(c => (
                                     <button 
                                         key={c} 
-                                        onClick={() => setCurrentCustomization(prev => ({...prev, color: c}))}
+                                        onClick={() => { playClickSound(); setCurrentCustomization(prev => ({...prev, color: c})); }}
                                         className={`w-10 h-10 rounded-full border-2 ${currentCustomization.color === c ? 'border-white scale-110' : 'border-gray-600'}`}
                                         style={{ backgroundColor: c }}
                                     />
@@ -499,7 +534,7 @@ const App = () => {
                                 {Object.values(DECALS).map(decal => (
                                     <button
                                         key={decal.id}
-                                        onClick={() => setCurrentCustomization(prev => ({...prev, decalId: decal.id}))}
+                                        onClick={() => { playClickSound(); setCurrentCustomization(prev => ({...prev, decalId: decal.id})); }}
                                         className={`p-2 border rounded ${currentCustomization.decalId === decal.id ? 'border-cyan-500 bg-cyan-900/30' : 'border-gray-700 hover:bg-gray-700'}`}
                                     >
                                         <div className="text-xs text-center">{decal.name}</div>
@@ -515,7 +550,7 @@ const App = () => {
                                 {Object.values(RIMS).map(rim => (
                                     <button
                                         key={rim.id}
-                                        onClick={() => setCurrentCustomization(prev => ({...prev, rimId: rim.id}))}
+                                        onClick={() => { playClickSound(); setCurrentCustomization(prev => ({...prev, rimId: rim.id})); }}
                                         className={`px-4 py-2 border rounded ${currentCustomization.rimId === rim.id ? 'border-purple-500 bg-purple-900/30' : 'border-gray-700 hover:bg-gray-700'}`}
                                     >
                                         {rim.name}
@@ -526,7 +561,7 @@ const App = () => {
 
                         <div className="flex gap-4">
                             <button onClick={saveCustomization} className="flex-1 py-3 bg-green-600 hover:bg-green-500 text-white font-bold rounded">保存改装</button>
-                            <button onClick={() => setEditingCarId(null)} className="flex-1 py-3 bg-gray-600 hover:bg-gray-500 text-white font-bold rounded">取消</button>
+                            <button onClick={() => { playClickSound(); setEditingCarId(null); }} className="flex-1 py-3 bg-gray-600 hover:bg-gray-500 text-white font-bold rounded">取消</button>
                         </div>
                     </div>
                 </div>
@@ -573,7 +608,11 @@ const App = () => {
                     );
                 })}
              </div>
-             <button onClick={() => setGameState(GameState.MENU)} className="mt-8 px-8 py-3 bg-gray-700 hover:bg-gray-600 text-white font-bold rounded">返回主菜单</button>
+             <button onClick={() => { 
+                 playClickSound(); 
+                 setGameState(GameState.MENU);
+                 setRaceStatus(RaceStatus.READY); // FORCE RESET PHYSICS
+             }} className="mt-8 px-8 py-3 bg-gray-700 hover:bg-gray-600 text-white font-bold rounded">返回主菜单</button>
         </div>
         );
     };
@@ -597,7 +636,11 @@ const App = () => {
                 <div className="text-4xl font-bold text-yellow-400 flex justify-center items-center gap-2 mb-6">
                      <CoinIcon /> +{prizeMoney}
                 </div>
-                <button onClick={() => setGameState(GameState.MENU)} className="w-full px-6 py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded font-['Noto_Sans_SC']">
+                <button onClick={() => { 
+                    playClickSound(); 
+                    setGameState(GameState.MENU);
+                    setRaceStatus(RaceStatus.READY); // FORCE RESET PHYSICS
+                }} className="w-full px-6 py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded font-['Noto_Sans_SC']">
                     返回主菜单
                 </button>
             </div>
@@ -692,12 +735,10 @@ const App = () => {
                         onGameOver={handleGameOver}
                         onScoreUpdate={handleHUDUpdate}
                         onCountdown={handleCountdown}
-                        // 如果状态是暂停，就传给场景一个暂停状态，虽然场景可能使用内部的暂停逻辑，
-                        // 但通过 raceStatus 传递是最安全的。
-                        // 由于 types.ts 中 RaceStatus 有 PAUSED，我们可以直接使用。
                         raceStatus={gameState === GameState.PAUSED ? RaceStatus.PAUSED : raceStatus}
                         quality={settings.quality}
-                        sfxVolume={settings.sfxVolume}
+                        // 如果在播放中，传声音；如果在菜单，传0，彻底消除引擎噪音
+                        sfxVolume={gameState === GameState.PLAYING ? settings.sfxVolume : 0}
                         sensitivity={settings.sensitivity}
                         aiCount={settings.aiCount}
                    />

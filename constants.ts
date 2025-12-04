@@ -12,9 +12,9 @@ import { createNoise2D } from 'simplex-noise';
 export const GAME_CONFIG = {
     // --- 音频设置 (AUDIO SETTINGS) ---
     AUDIO: {
-        MASTER_VOLUME: 1.0,         // 全局主音量 (0.0 - 1.0)。例如 0.5 表示所有声音减半。
-        MUSIC_DEFAULT: 50,          // 默认背景音乐音量 (0-100)
-        SFX_DEFAULT: 80             // 默认音效音量 (0-100)
+        MASTER_VOLUME: 0.8,         // 全局主音量 (降低至 0.6 防止爆音和刺耳)
+        MUSIC_DEFAULT: 40,          // 默认背景音乐音量 (降低，让菜单更轻柔)
+        SFX_DEFAULT: 60             // 默认音效音量 (降低，避免覆盖音乐)
     },
 
     // --- 玩家设置 (PLAYER SETTINGS) ---

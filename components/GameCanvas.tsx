@@ -677,10 +677,12 @@ const StartLineMesh = ({ curve }: { curve: THREE.CatmullRomCurve3 }) => {
 const usePlayerAudio = (volume: number) => {
     const contextRef = useRef<AudioContext | null>(null);
     const engineOscRef = useRef<OscillatorNode | null>(null);
+    const engineFilterRef = useRef<BiquadFilterNode | null>(null); 
     const engineGainRef = useRef<GainNode | null>(null);
     const driftGainRef = useRef<GainNode | null>(null);
     const nitroOscRef = useRef<OscillatorNode | null>(null);
     const nitroGainRef = useRef<GainNode | null>(null);
+    const brakeGainRef = useRef<GainNode | null>(null); 
 
     useEffect(() => {
         try {
@@ -690,18 +692,30 @@ const usePlayerAudio = (volume: number) => {
             const masterGain = ctx.createGain();
             masterGain.connect(ctx.destination);
             
-            // Engine
+            // Engine with LowPass Filter
             const engOsc = ctx.createOscillator();
+            const engFilter = ctx.createBiquadFilter();
             const engGain = ctx.createGain();
+            
             engOsc.type = 'sawtooth';
-            engOsc.frequency.value = 100;
+            engOsc.frequency.value = 80;
+            
+            engFilter.type = 'lowpass';
+            engFilter.frequency.value = 400; 
+            
+            // INITIALIZE GAIN TO 0 TO PREVENT STARTUP NOISE
+            engGain.gain.value = 0;
+
             engOsc.start();
-            engOsc.connect(engGain);
+            engOsc.connect(engFilter);
+            engFilter.connect(engGain);
             engGain.connect(masterGain);
+            
             engineOscRef.current = engOsc;
+            engineFilterRef.current = engFilter;
             engineGainRef.current = engGain;
 
-            // Drift
+            // Drift & Brake (Reuse Noise Buffer)
             const bufferSize = ctx.sampleRate * 2;
             const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
             const data = buffer.getChannelData(0);
@@ -711,19 +725,44 @@ const usePlayerAudio = (volume: number) => {
             driftSrc.buffer = buffer;
             driftSrc.loop = true;
             driftSrc.start();
+            
+            const driftFilter = ctx.createBiquadFilter();
+            driftFilter.type = 'bandpass';
+            driftFilter.frequency.value = 700;
+            driftFilter.Q.value = 1.0;
+
             const driftGain = ctx.createGain();
-            driftGain.gain.value = 0;
-            driftSrc.connect(driftGain);
+            driftGain.gain.value = 0; // Initialize to 0
+            
+            driftSrc.connect(driftFilter);
+            driftFilter.connect(driftGain);
             driftGain.connect(masterGain);
             driftGainRef.current = driftGain;
 
-            // Nitro
+            const brakeSrc = ctx.createBufferSource();
+            brakeSrc.buffer = buffer;
+            brakeSrc.loop = true;
+            brakeSrc.start();
+
+            const brakeFilter = ctx.createBiquadFilter();
+            brakeFilter.type = 'highpass';
+            brakeFilter.frequency.value = 1200; 
+            brakeFilter.Q.value = 2.0;
+
+            const brakeGain = ctx.createGain();
+            brakeGain.gain.value = 0; // Initialize to 0
+
+            brakeSrc.connect(brakeFilter);
+            brakeFilter.connect(brakeGain);
+            brakeGain.connect(masterGain);
+            brakeGainRef.current = brakeGain;
+
             const nitOsc = ctx.createOscillator();
             const nitGain = ctx.createGain();
-            nitOsc.type = 'square';
+            nitOsc.type = 'triangle';
             nitOsc.frequency.value = 200;
             nitOsc.start();
-            nitGain.gain.value = 0;
+            nitGain.gain.value = 0; // Initialize to 0
             nitOsc.connect(nitGain);
             nitGain.connect(masterGain);
             nitroOscRef.current = nitOsc;
@@ -740,26 +779,32 @@ const usePlayerAudio = (volume: number) => {
         const ctx = contextRef.current;
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        osc.frequency.setValueAtTime(150, ctx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(40, ctx.currentTime + 0.3);
         
-        // Louder collision scaled by Master Volume
+        osc.frequency.setValueAtTime(80, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(20, ctx.currentTime + 0.3);
+        
         const master = GAME_CONFIG.AUDIO.MASTER_VOLUME;
-        const vol = ((volume / 100) * master) * 1.5;
+        const vol = ((volume / 100) * master);
 
         gain.gain.setValueAtTime(vol, ctx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
         
-        // Add noise burst for impact
         const bufferSize = ctx.sampleRate * 0.2;
         const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
         const data = buffer.getChannelData(0);
-        for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1) * 0.5;
+        for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1) * 0.8;
+        
         const noise = ctx.createBufferSource();
         noise.buffer = buffer;
+        const noiseFilter = ctx.createBiquadFilter();
+        noiseFilter.type = 'lowpass';
+        noiseFilter.frequency.value = 600;
+
         const noiseGain = ctx.createGain();
         noiseGain.gain.value = vol;
-        noise.connect(noiseGain);
+        
+        noise.connect(noiseFilter);
+        noiseFilter.connect(noiseGain);
         noiseGain.connect(ctx.destination);
         noise.start();
 
@@ -769,24 +814,46 @@ const usePlayerAudio = (volume: number) => {
         osc.stop(ctx.currentTime + 0.3);
     };
 
-    const updateAudio = (speed: number, isDrifting: boolean, isNitro: boolean) => {
+    const updateAudio = (speed: number, isDrifting: boolean, isNitro: boolean, isBraking: boolean) => {
         if (!contextRef.current || contextRef.current.state === 'suspended') {
             contextRef.current?.resume();
             return;
         }
-        // Master Volume Scaling
+        
         const master = GAME_CONFIG.AUDIO.MASTER_VOLUME;
         const vol = (volume / 100) * master; 
+        const ct = contextRef.current.currentTime;
 
-        if (engineOscRef.current && engineGainRef.current) {
-            engineOscRef.current.frequency.setTargetAtTime(80 + Math.abs(speed) * 3, contextRef.current.currentTime, 0.1);
-            engineGainRef.current.gain.setTargetAtTime(vol * 0.2, contextRef.current.currentTime, 0.1);
+        // If overall volume is effectively 0, mute everything immediately
+        if (volume <= 0) {
+             if (engineGainRef.current) engineGainRef.current.gain.setTargetAtTime(0, ct, 0.1);
+             if (driftGainRef.current) driftGainRef.current.gain.setTargetAtTime(0, ct, 0.1);
+             if (brakeGainRef.current) brakeGainRef.current.gain.setTargetAtTime(0, ct, 0.1);
+             if (nitroGainRef.current) nitroGainRef.current.gain.setTargetAtTime(0, ct, 0.1);
+             return;
+        }
+
+        if (engineOscRef.current && engineGainRef.current && engineFilterRef.current) {
+            const absSpeed = Math.abs(speed);
+            // Dynamic frequency: 80Hz (Idle) -> 120Hz (High Speed) for oscillator
+            engineOscRef.current.frequency.setTargetAtTime(80 + absSpeed * 0.2, ct, 0.1);
+            
+            // Dynamic Filter: Open up the filter at high speeds (100Hz -> 1500Hz)
+            const targetFilterFreq = 100 + absSpeed * 6;
+            engineFilterRef.current.frequency.setTargetAtTime(targetFilterFreq, ct, 0.1);
+
+            engineGainRef.current.gain.setTargetAtTime(vol * 0.3, ct, 0.1);
         }
         if (driftGainRef.current) {
-            driftGainRef.current.gain.setTargetAtTime(isDrifting ? vol * 0.4 : 0, contextRef.current.currentTime, 0.1);
+            driftGainRef.current.gain.setTargetAtTime(isDrifting ? vol * 0.5 : 0, ct, 0.1);
+        }
+        if (brakeGainRef.current) {
+             const shouldSqueal = isBraking && Math.abs(speed) > 20 && !isDrifting; 
+             brakeGainRef.current.gain.setTargetAtTime(shouldSqueal ? vol * 0.4 : 0, ct, 0.1);
         }
         if (nitroOscRef.current && nitroGainRef.current) {
-            nitroGainRef.current.gain.setTargetAtTime(isNitro ? vol * 0.3 : 0, contextRef.current.currentTime, 0.1);
+            nitroOscRef.current.frequency.setTargetAtTime(isNitro ? 400 : 200, ct, 0.2);
+            nitroGainRef.current.gain.setTargetAtTime(isNitro ? vol * 0.4 : 0, ct, 0.1);
         }
     };
     return { updateAudio, playCollision };
@@ -972,6 +1039,7 @@ const Vehicle: React.FC<VehicleProps> = ({ racerState, curve, isPlayer, skidMark
     const audio = usePlayerAudio(sfxVolume);
     const [collisionActive, setCollisionActive] = useState(false);
     const [collisionPos, setCollisionPos] = useState(new THREE.Vector3());
+    const keys = useRef({ down: false }); // Track local keys for audio
 
     // Register mesh ref for direct access by physics engine
     useEffect(() => {
@@ -987,6 +1055,16 @@ const Vehicle: React.FC<VehicleProps> = ({ racerState, curve, isPlayer, skidMark
         }
     }, [registerVehicle, racerState.id, isPlayer]);
 
+    // Listen to keys for braking sound (only for player)
+    useEffect(() => {
+        if(!isPlayer) return;
+        const down = (e: KeyboardEvent) => { if(['arrowdown','s'].includes(e.key.toLowerCase())) keys.current.down = true; };
+        const up = (e: KeyboardEvent) => { if(['arrowdown','s'].includes(e.key.toLowerCase())) keys.current.down = false; };
+        window.addEventListener('keydown', down);
+        window.addEventListener('keyup', up);
+        return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); }
+    }, [isPlayer]);
+
     const carColor = useMemo(() => {
         if (isPlayer && playerCustomization?.color) return playerCustomization.color;
         return racerState.color;
@@ -995,7 +1073,14 @@ const Vehicle: React.FC<VehicleProps> = ({ racerState, curve, isPlayer, skidMark
     useFrame((state, delta) => {
         if (!group.current || racerState.health <= 0) return;
 
-        if (isPlayer) audio.updateAudio(racerState.speed, racerState.isDrifting, racerState.isNitroActive);
+        if (isPlayer) {
+            audio.updateAudio(
+                racerState.speed, 
+                racerState.isDrifting, 
+                racerState.isNitroActive,
+                keys.current.down // Braking
+            );
+        }
 
         const t = racerState.t % 1;
         const point = curve.getPointAt(t);
@@ -1208,6 +1293,20 @@ export const GameScene: React.FC<GameSceneProps> = ({
         const dt = Math.min(delta, 0.05);
         const p = playerRef.current;
         const isRacing = raceStatus === RaceStatus.RACING;
+
+        // If NOT racing (e.g., Menu, Finished), we might want to skip physics
+        // But we still want visuals to update (camera floating, cars idling visually)
+        // However, we MUST skip audio-related physics updates if volume is 0 or stopped
+        if (!isRacing && raceStatus !== RaceStatus.COUNTDOWN) {
+             // Optional: Rotate camera in menu
+             if (raceStatus === RaceStatus.READY) {
+                const t = state.clock.getElapsedTime() * 0.1;
+                const pt = curve.getPointAt((t * 0.1) % 1);
+                state.camera.position.set(pt.x + 20, pt.y + 10, pt.z + 20);
+                state.camera.lookAt(pt);
+             }
+             return;
+        }
 
         if (isRacing) {
             // --- Physics & Rigid Body Integration ---
