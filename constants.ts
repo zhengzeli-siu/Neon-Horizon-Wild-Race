@@ -10,6 +10,13 @@ import { createNoise2D } from 'simplex-noise';
 // 所有数值均可实时调整以改变手感。
 
 export const GAME_CONFIG = {
+    // --- 音频设置 (AUDIO SETTINGS) ---
+    AUDIO: {
+        MASTER_VOLUME: 1.0,         // 全局主音量 (0.0 - 1.0)。例如 0.5 表示所有声音减半。
+        MUSIC_DEFAULT: 50,          // 默认背景音乐音量 (0-100)
+        SFX_DEFAULT: 80             // 默认音效音量 (0-100)
+    },
+
     // --- 玩家设置 (PLAYER SETTINGS) ---
     PLAYER: {
         SPEED_MULTIPLIER: 2.5,      // 速度倍率：数值越大，车速越快 (基础速度 x 倍率)

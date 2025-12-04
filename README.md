@@ -16,6 +16,44 @@
     *   Bloom 泛光与色差特效
 *   **丰富环境**：包含沙漠、雪地、城市三种风格迥异的赛道。
 
+## 🛠️ 游戏修改与自定义指南
+
+本项目设计了集中式的配置管理，即使没有编程基础，您也可以通过修改配置文件来调整游戏手感和平衡性。
+
+### 1. 核心数值调整 (`constants.ts`)
+打开 `src/constants.ts` 文件，找到顶部的 **`GAME_CONFIG`** 对象。这里是游戏的控制面板：
+
+*   **AUDIO (音频)**: 修改 `MASTER_VOLUME` 可全局控制音量大小。
+*   **PLAYER (玩家)**: 
+    *   `SPEED_MULTIPLIER`: 调整整体游戏速度感。
+    *   `NITRO_BOOST_POWER`: 调整氮气加速的猛烈程度。
+    *   `DRIFT_GRIP_LOSS`: 调整漂移时的减速惩罚。
+    *   `WALL_BOUNCE`: 调整撞墙后的反弹力度。
+*   **AI (人工智能)**:
+    *   `SPEED_VARIANCE`: 增加数值让 AI 速度差异更大。
+    *   `CORNER_SKILL_BASE`: 调整 AI 过弯的完美程度。
+    *   `AGRESSION_BONUS`: 调整 AI 的攻击欲望。
+*   **PHYSICS (物理)**:
+    *   `FRICTION_LATERAL`: 调整轮胎抓地力（数值越低越滑）。
+    *   `COLLISION_BOUNCE`: 调整车辆碰撞时的弹射力度。
+
+### 2. 添加或修改赛车 (`constants.ts`)
+在 `constants.ts` 中找到 **`CARS`** 数组：
+*   您可以直接修改现有车辆的 `speed` (速度), `handling` (操控), `acceleration` (加速) 等数值。
+*   **添加新车**：复制一个 `{ ... }` 对象块，修改 `id`, `name`, `color` 等属性即可添加一辆新车。
+
+### 3. 修改赛道参数 (`constants.ts`)
+在 `constants.ts` 中找到 **`TRACKS`** 对象：
+*   `length`: 修改赛道长度。
+*   `curveIntensity`: 修改弯道的急缓程度。
+*   `sceneryCount`: 增加或减少路边的装饰物数量。
+
+### 4. 进阶开发
+*   **`types.ts`**: 如果您需要为赛车添加新属性（例如“护盾值”），请先在此文件中修改接口定义。
+*   **`components/GameCanvas.tsx`**:这里包含了核心渲染循环和物理引擎逻辑。如果您想修改核心玩法（例如添加道具系统），请修改此文件。
+
+---
+
 ## 🚀 如何让别人通过链接直接玩？ (部署指南)
 
 ### 方案：GitHub Pages

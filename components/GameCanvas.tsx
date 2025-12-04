@@ -742,8 +742,11 @@ const usePlayerAudio = (volume: number) => {
         const gain = ctx.createGain();
         osc.frequency.setValueAtTime(150, ctx.currentTime);
         osc.frequency.exponentialRampToValueAtTime(40, ctx.currentTime + 0.3);
-        // Louder collision
-        const vol = (volume / 100) * 1.5;
+        
+        // Louder collision scaled by Master Volume
+        const master = GAME_CONFIG.AUDIO.MASTER_VOLUME;
+        const vol = ((volume / 100) * master) * 1.5;
+
         gain.gain.setValueAtTime(vol, ctx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
         
@@ -771,7 +774,10 @@ const usePlayerAudio = (volume: number) => {
             contextRef.current?.resume();
             return;
         }
-        const vol = volume / 100; 
+        // Master Volume Scaling
+        const master = GAME_CONFIG.AUDIO.MASTER_VOLUME;
+        const vol = (volume / 100) * master; 
+
         if (engineOscRef.current && engineGainRef.current) {
             engineOscRef.current.frequency.setTargetAtTime(80 + Math.abs(speed) * 3, contextRef.current.currentTime, 0.1);
             engineGainRef.current.gain.setTargetAtTime(vol * 0.2, contextRef.current.currentTime, 0.1);

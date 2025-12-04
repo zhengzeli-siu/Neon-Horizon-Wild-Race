@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { GameState, BiomeType, PlayerState, SettingsState, RaceStatus, RacerState, CustomizationConfig, DecalType, RimType } from './types';
-import { CARS, TRACKS, PRIZES, DECALS, RIMS } from './constants';
+import { CARS, TRACKS, PRIZES, DECALS, RIMS, GAME_CONFIG } from './constants';
 import GameScene from './components/GameCanvas';
 import { getTacticalBriefing } from './services/geminiService';
 
@@ -120,8 +120,8 @@ const App = () => {
 
     const [settings, setSettings] = useState<SettingsState>({
         quality: 'HIGH',
-        musicVolume: 50,
-        sfxVolume: 80,
+        musicVolume: GAME_CONFIG.AUDIO.MUSIC_DEFAULT,
+        sfxVolume: GAME_CONFIG.AUDIO.SFX_DEFAULT,
         sensitivity: 50,
         aiCount: 5
     });
@@ -163,9 +163,11 @@ const App = () => {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [gameState]);
 
+    // Volume effect with Master Control
     useEffect(() => {
-        if (menuBgmRef.current) menuBgmRef.current.volume = settings.musicVolume / 100;
-        if (raceBgmRef.current) raceBgmRef.current.volume = settings.musicVolume / 100;
+        const master = GAME_CONFIG.AUDIO.MASTER_VOLUME;
+        if (menuBgmRef.current) menuBgmRef.current.volume = (settings.musicVolume / 100) * master;
+        if (raceBgmRef.current) raceBgmRef.current.volume = (settings.musicVolume / 100) * master;
     }, [settings.musicVolume]);
 
     useEffect(() => {
@@ -177,22 +179,23 @@ const App = () => {
             } catch (e) { console.warn("Autoplay blocked", e); }
         };
         const stopAudio = (audio: HTMLAudioElement | null) => audio?.pause();
+        const master = GAME_CONFIG.AUDIO.MASTER_VOLUME;
 
         if (gameState === GameState.PLAYING) {
             stopAudio(menuBgmRef.current);
             playAudio(raceBgmRef.current);
         } else if (gameState === GameState.PAUSED) {
             // 暂停时保持背景音乐，或者可以降低音量
-            if (raceBgmRef.current) raceBgmRef.current.volume = (settings.musicVolume / 100) * 0.3;
+            if (raceBgmRef.current) raceBgmRef.current.volume = ((settings.musicVolume / 100) * master) * 0.3;
         } else {
             stopAudio(raceBgmRef.current);
             if (menuBgmRef.current && menuBgmRef.current.paused) playAudio(menuBgmRef.current);
-            if (menuBgmRef.current) menuBgmRef.current.volume = settings.musicVolume / 100;
+            if (menuBgmRef.current) menuBgmRef.current.volume = (settings.musicVolume / 100) * master;
         }
         
         // 恢复音量
         if (gameState === GameState.PLAYING && raceBgmRef.current) {
-            raceBgmRef.current.volume = settings.musicVolume / 100;
+            raceBgmRef.current.volume = (settings.musicVolume / 100) * master;
         }
     }, [gameState, settings.musicVolume]);
 
@@ -407,6 +410,21 @@ const App = () => {
                         <span className="text-white font-mono">{settings.sensitivity}%</span>
                     </div>
                     <input type="range" min="10" max="100" value={settings.sensitivity} onChange={(e) => setSettings(s => ({...s, sensitivity: parseInt(e.target.value)}))} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500" />
+                </div>
+                {/* 音量设置 */}
+                <div className="mb-6">
+                    <div className="flex justify-between mb-2">
+                        <label className="block text-cyan-400 font-bold">音乐音量</label>
+                        <span className="text-white font-mono">{settings.musicVolume}%</span>
+                    </div>
+                    <input type="range" min="0" max="100" value={settings.musicVolume} onChange={(e) => setSettings(s => ({...s, musicVolume: parseInt(e.target.value)}))} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500" />
+                </div>
+                <div className="mb-6">
+                    <div className="flex justify-between mb-2">
+                        <label className="block text-cyan-400 font-bold">音效音量</label>
+                        <span className="text-white font-mono">{settings.sfxVolume}%</span>
+                    </div>
+                    <input type="range" min="0" max="100" value={settings.sfxVolume} onChange={(e) => setSettings(s => ({...s, sfxVolume: parseInt(e.target.value)}))} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500" />
                 </div>
                 <button onClick={() => setGameState(GameState.MENU)} className="w-full py-3 bg-gray-600 hover:bg-gray-500 text-white font-bold rounded mt-4">保存并返回</button>
              </div>
