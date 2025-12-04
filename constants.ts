@@ -1,48 +1,66 @@
 
-
 import { BiomeType, CarStats, TrackConfig, WeatherType, DecalType, RimType } from './types';
 import * as THREE from 'three';
 import { createNoise2D } from 'simplex-noise';
 
-// --- 全局配置 ---
-export const LANE_WIDTH = 6; // Slightly wider lanes for better speed feel
-export const SHOULDER_WIDTH = 5; // Distinct shoulders
+// ==========================================
+// 🎮 游戏全局设置控制面板 (GAME CONFIGURATION)
+// ==========================================
+// 初学者可以在这里修改游戏的数值，无需改动核心代码。
+// 所有数值均可实时调整以改变手感。
+
+export const GAME_CONFIG = {
+    // --- 玩家设置 (PLAYER SETTINGS) ---
+    PLAYER: {
+        SPEED_MULTIPLIER: 2.5,      // 速度倍率：数值越大，车速越快 (基础速度 x 倍率)
+        NITRO_BOOST_POWER: 1.5,     // 氮气加速倍率：开启氮气时，速度提升多少倍 (1.5 = 提升50%)
+        NITRO_DRAIN_RATE: 40,       // 氮气消耗速度：数值越大，氮气用得越快 (每秒消耗百分比)
+        NITRO_RECHARGE_RATE: 10,    // 氮气自然恢复速度：数值越大，恢复越快
+        DRIFT_GRIP_LOSS: 0.95,      // 漂移时的速度保留：1.0 为不减速，0.9 为减速10%
+        STEERING_SENSITIVITY: 1.0,  // 转向灵敏度基础值
+        MAX_HEALTH_LOSS: 10,        // 撞墙时每秒扣除的耐久度
+        WALL_BOUNCE: 0.5,           // 撞墙反弹力度 (0.0 - 1.0)
+    },
+
+    // --- AI 对手设置 (AI SETTINGS) ---
+    AI: {
+        SPEED_VARIANCE: 0.1,        // 速度随机波动范围 (让 AI 速度不完全一致)
+        CORNER_SKILL_BASE: 0.4,     // 基础过弯能力 (0.0 - 1.0)
+        AGRESSION_BONUS: 0.1,       // 攻击性对速度的加成影响
+        LANE_CHANGE_SPEED: 2.0,     // AI 变道的速度
+        COLLISION_AVOID_DIST: 0.03, // AI 检测前方车辆的距离 (0.0 - 1.0 赛道比例)
+    },
+
+    // --- 物理引擎设置 (PHYSICS SETTINGS) ---
+    PHYSICS: {
+        FRICTION_LATERAL: 0.92,     // 横向摩擦力：数值越小，车辆越容易侧滑 (0.0 - 1.0)
+        FRICTION_ANGULAR: 0.90,     // 旋转阻尼：数值越小，车辆打转后停下来的越慢
+        COLLISION_BOUNCE: 0.8,      // 车辆互撞时的弹力系数
+        COLLISION_SPIN: 2.0,        // 撞击导致的旋转力度系数
+        GRAVITY: 20,                // 粒子下落重力
+    },
+
+    // --- 赛道设置 (TRACK SETTINGS) ---
+    TRACK: {
+        LANE_WIDTH: 6,              // 单个车道宽度
+        SHOULDER_WIDTH: 5,          // 路肩宽度
+        SEGMENTS: 400,              // 赛道平滑度 (分段数)
+        LOOP_TENSION: 0.2,          // 曲线张力
+    }
+};
+
+// 导出常用的快捷常量供代码引用
+export const LANE_WIDTH = GAME_CONFIG.TRACK.LANE_WIDTH;
+export const SHOULDER_WIDTH = GAME_CONFIG.TRACK.SHOULDER_WIDTH;
 export const TRACK_WIDTH = LANE_WIDTH * 3; 
 export const FULL_WIDTH = TRACK_WIDTH + SHOULDER_WIDTH * 2; 
 export const SEGMENTS_MULTIPLIER = 4;
 
 export const noise2D = createNoise2D();
 
-export const getTerrainHeight = (x: number, z: number, biome: BiomeType) => {
-    // Smoother base terrain
-    let y = noise2D(x * 0.001, z * 0.001) * 35; 
-    y += noise2D(x * 0.003, z * 0.003) * 10;
-    
-    if (biome === BiomeType.DESERT) {
-        y = Math.abs(y) * 1.5; // Rolling dunes
-    } else if (biome === BiomeType.CITY) {
-        y = Math.floor(y / 15) * 15; // Terraced levels
-    } else if (biome === BiomeType.VOLCANO) {
-        y = Math.abs(y) * 2.2 + noise2D(x * 0.01, z * 0.01) * 5; // Jagged volcanic terrain
-    }
-    
-    return Math.max(-40, y);
-};
-
-export const PRIZES = { 1: 500, 2: 300, 3: 150, others: 50 };
-
-export const DECALS = {
-  [DecalType.NONE]: { id: DecalType.NONE, name: '无' },
-  [DecalType.STRIPE]: { id: DecalType.STRIPE, name: '赛车条纹' },
-  [DecalType.FLAME]: { id: DecalType.FLAME, name: '烈焰' },
-  [DecalType.SKULL]: { id: DecalType.SKULL, name: '骷髅' }
-};
-
-export const RIMS = {
-  [RimType.STANDARD]: { id: RimType.STANDARD, name: '标准' },
-  [RimType.SPORT]: { id: RimType.SPORT, name: '运动' },
-  [RimType.NEON]: { id: RimType.NEON, name: '霓虹光圈' }
-};
+// ==========================================
+// 🏎️ 车辆数据配置 (CAR DATA)
+// ==========================================
 
 export const CARS: CarStats[] = [
   {
@@ -103,6 +121,10 @@ export const CARS: CarStats[] = [
   }
 ];
 
+// ==========================================
+// 🗺️ 赛道数据配置 (TRACK DATA)
+// ==========================================
+
 export const TRACKS: Record<BiomeType, TrackConfig> = {
   [BiomeType.DESERT]: {
     id: BiomeType.DESERT,
@@ -162,12 +184,46 @@ export const TRACKS: Record<BiomeType, TrackConfig> = {
   }
 };
 
+// ==========================================
+// 🎨 资源与逻辑生成器 (ASSETS & GENERATORS)
+// ==========================================
+// 以下内容为核心逻辑，非程序员请勿随意修改
+
+export const PRIZES = { 1: 500, 2: 300, 3: 150, others: 50 };
+
+export const DECALS = {
+  [DecalType.NONE]: { id: DecalType.NONE, name: '无' },
+  [DecalType.STRIPE]: { id: DecalType.STRIPE, name: '赛车条纹' },
+  [DecalType.FLAME]: { id: DecalType.FLAME, name: '烈焰' },
+  [DecalType.SKULL]: { id: DecalType.SKULL, name: '骷髅' }
+};
+
+export const RIMS = {
+  [RimType.STANDARD]: { id: RimType.STANDARD, name: '标准' },
+  [RimType.SPORT]: { id: RimType.SPORT, name: '运动' },
+  [RimType.NEON]: { id: RimType.NEON, name: '霓虹光圈' }
+};
+
+export const getTerrainHeight = (x: number, z: number, biome: BiomeType) => {
+    let y = noise2D(x * 0.001, z * 0.001) * 35; 
+    y += noise2D(x * 0.003, z * 0.003) * 10;
+    
+    if (biome === BiomeType.DESERT) {
+        y = Math.abs(y) * 1.5;
+    } else if (biome === BiomeType.CITY) {
+        y = Math.floor(y / 15) * 15;
+    } else if (biome === BiomeType.VOLCANO) {
+        y = Math.abs(y) * 2.2 + noise2D(x * 0.01, z * 0.01) * 5;
+    }
+    return Math.max(-40, y);
+};
+
 export type FeatureType = 'JUMP' | 'TUNNEL' | 'BANKED';
 
 export interface TrackFeature {
     type: FeatureType;
-    start: number; // 0 to 1
-    end: number;   // 0 to 1
+    start: number;
+    end: number;
     intensity: number;
 }
 
@@ -175,7 +231,7 @@ export const getTrackFeatures = (biome: BiomeType): TrackFeature[] => {
     switch (biome) {
         case BiomeType.DESERT:
             return [
-                { type: 'JUMP', start: 0.1, end: 0.18, intensity: 15 }, // Smoother jump
+                { type: 'JUMP', start: 0.1, end: 0.18, intensity: 15 },
                 { type: 'BANKED', start: 0.35, end: 0.55, intensity: 8 }, 
                 { type: 'JUMP', start: 0.7, end: 0.8, intensity: 25 }, 
             ];
@@ -203,9 +259,8 @@ export const getTrackFeatures = (biome: BiomeType): TrackFeature[] => {
 
 export const generateTrackPath = (seed: number, complexity: number, scale: number, biome: BiomeType, features: TrackFeature[]) => {
     const points: THREE.Vector3[] = [];
-    const segments = 400; 
+    const segments = GAME_CONFIG.TRACK.SEGMENTS; 
     
-    // Simplification: Less erratic random noise, more smooth curves
     const rX = scale * 1.8;
     const rZ = scale * 1.4;
 
@@ -213,48 +268,38 @@ export const generateTrackPath = (seed: number, complexity: number, scale: numbe
         const t = i / segments;
         const theta = t * Math.PI * 2;
         
-        // Base Shape: Smooth Ellipse with slight distortion
         let x = Math.cos(theta) * rX;
         let z = Math.sin(theta) * rZ;
         
-        // Add very low frequency noise for variety without sharp turns
-        // Using periodic functions ensures the loop closes perfectly
+        // Low frequency harmonics for smooth Grand Prix style curves
         x += Math.cos(theta * 2 + seed) * (rX * 0.15);
         z += Math.sin(theta * 3 + seed) * (rZ * 0.1);
 
-        // Calculate base terrain height
         let y = getTerrainHeight(x, z, biome) + 6; 
 
-        // Apply Features smoothly
         let featureMod = 0;
         const inFeature = features.find(f => t >= f.start && t <= f.end);
         
         if (inFeature) {
             const localT = (t - inFeature.start) / (inFeature.end - inFeature.start); 
-            // Smooth easing (Hermite-like)
             const smoothT = localT * localT * (3 - 2 * localT);
 
             if (inFeature.type === 'JUMP') {
-                // Sine wave ramp
                 featureMod += Math.sin(localT * Math.PI) * inFeature.intensity;
             } 
             else if (inFeature.type === 'TUNNEL') {
-                // Flatten and dip
                 featureMod -= Math.sin(localT * Math.PI) * 15; 
-                y = getTerrainHeight(x, z, biome) * 0.5; // Reduce terrain influence in tunnel
+                y = getTerrainHeight(x, z, biome) * 0.5;
             }
             else if (inFeature.type === 'BANKED') {
-                // Banked turns affect rotation mostly, but here we add slight elevation wave
                 featureMod += Math.sin(localT * Math.PI * 2) * inFeature.intensity * 0.3;
             }
         } else {
-             // Gentle global undulation
              featureMod += Math.sin(theta * 3) * 5; 
         }
 
         y += featureMod;
         
-        // Clamp Y to prevent going underground too deep (unless tunnel)
         if (!inFeature || inFeature.type !== 'TUNNEL') {
              y = Math.max(y, -10);
         }
@@ -262,7 +307,7 @@ export const generateTrackPath = (seed: number, complexity: number, scale: numbe
         points.push(new THREE.Vector3(x, y, z));
     }
     
-    return new THREE.CatmullRomCurve3(points, true, 'catmullrom', 0.2); // Increased tension for smoother curve
+    return new THREE.CatmullRomCurve3(points, true, 'catmullrom', GAME_CONFIG.TRACK.LOOP_TENSION);
 };
 
 export const createRoadTexture = () => {
@@ -289,20 +334,16 @@ export const createRoadTexture = () => {
     
     for(let y=0; y<1024; y+=segH) {
         const isRed = (y / segH) % 2 === 0;
-        
-        // Left
         ctx.fillStyle = isRed ? '#cc0000' : '#eeeeee';
         ctx.fillRect(0, y, shoulderW, segH);
-        
-        // Right
         ctx.fillStyle = isRed ? '#cc0000' : '#eeeeee';
         ctx.fillRect(1024 - shoulderW, y, shoulderW, segH);
     }
     
     // Sharp Lines defining track edge
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect(shoulderW, 0, 8, 1024);
-    ctx.fillRect(1024 - shoulderW - 8, 0, 8, 1024);
+    ctx.fillRect(shoulderW, 0, 15, 1024); // Wider line (15px)
+    ctx.fillRect(1024 - shoulderW - 15, 0, 15, 1024);
 
     // 3. Center Dashed Lines
     ctx.fillStyle = '#ffffff';
@@ -331,7 +372,6 @@ export const createTunnelTexture = () => {
     ctx.fillStyle = '#0a0a0a';
     ctx.fillRect(0,0,512,512);
 
-    // Sci-fi panels
     ctx.strokeStyle = '#333';
     ctx.lineWidth = 4;
     for(let i=0; i<=512; i+=64) {
@@ -340,7 +380,6 @@ export const createTunnelTexture = () => {
         ctx.stroke();
     }
     
-    // Lights
     ctx.fillStyle = '#00ffff';
     ctx.shadowBlur = 20;
     ctx.shadowColor = '#00ffff';
@@ -366,7 +405,6 @@ export const createBuildingTexture = () => {
     ctx.fillStyle = '#050505';
     ctx.fillRect(0,0,128,256);
 
-    // Windows
     for(let y=20; y<240; y+=20) {
         for(let x=10; x<110; x+=25) {
             if(Math.random() > 0.4) {
