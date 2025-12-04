@@ -3,7 +3,6 @@
 
 [![在线试玩](https://img.shields.io/badge/🎮%20在线试玩-点击立即开始-00ffff?style=for-the-badge&logo=google-chrome&logoColor=white)](https://ai.studio/apps/drive/1Pa4A9do9TY5RUkvy6tu-fqMYTK5skrlF)
 
-> **注意**：如果您是仓库拥有者，请先将本项目部署到 Vercel 或 GitHub Pages，然后将生成的网址填入上方链接中。
 
 ## 项目简介
 本项目是一个基于 WebGL 的高性能 3D 赛车游戏,本项目采用了行业标准的 **React + Three.js** 技术栈。
