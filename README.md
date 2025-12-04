@@ -1,7 +1,7 @@
 
 # 霓虹地平线：狂野飙车 3D (Neon Horizon: Wild Race)
 
-[![在线试玩](https://img.shields.io/badge/🎮%20在线试玩-点击立即开始-00ffff?style=for-the-badge&logo=google-chrome&logoColor=white)]([请在此处替换您的部署链接])
+[![在线试玩](https://img.shields.io/badge/🎮%20在线试玩-点击立即开始-00ffff?style=for-the-badge&logo=google-chrome&logoColor=white)]([https://ai.studio/apps/drive/1Pa4A9do9TY5RUkvy6tu-fqMYTK5skrlF])
 
 > **注意**：如果您是仓库拥有者，请先将本项目部署到 Vercel 或 GitHub Pages，然后将生成的网址填入上方链接中。
 
@@ -19,15 +19,7 @@
 
 ## 🚀 如何让别人通过链接直接玩？ (部署指南)
 
-### 推荐：使用 Vercel (最简单)
-
-1.  将本项目代码上传到您的 **GitHub** 仓库。
-2.  访问 [Vercel.com](https://vercel.com) 并使用 GitHub 账号登录。
-3.  点击 **"Add New Project"**，导入本仓库。
-4.  直接点击 **"Deploy"** (Vercel 会自动识别 React 环境)。
-5.  等待约 1 分钟，您将获得一个类似 `https://xxx.vercel.app` 的网址。
-
-### 替代方案：GitHub Pages
+### 方案：GitHub Pages
 
 如果您希望直接在 GitHub 上托管：
 
