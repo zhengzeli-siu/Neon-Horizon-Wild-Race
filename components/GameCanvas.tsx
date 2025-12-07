@@ -1273,6 +1273,42 @@ export const GameScene: React.FC<GameSceneProps> = ({
 
     useEffect(() => {
         if (raceStatus === RaceStatus.COUNTDOWN) {
+            // --- RESET RACER STATS ON NEW RACE START ---
+            playerRef.current.lap = 1;
+            playerRef.current.distance = 0;
+            playerRef.current.speed = 0;
+            playerRef.current.rank = aiCount + 1;
+            playerRef.current.health = carConfig.maxHealth;
+            playerRef.current.nitroLevel = 100;
+            playerRef.current.t = 0;
+            playerRef.current.laneOffset = 0;
+            playerRef.current.lateralVelocity = 0;
+            playerRef.current.angularVelocity = 0;
+            playerRef.current.spinAngle = 0;
+
+            const totalRacers = aiCount + 1;
+            const spacing = 1.4 / totalRacers;
+
+            aiRefs.current.forEach((ai, i) => {
+                ai.lap = 1;
+                ai.distance = 0;
+                ai.speed = 0;
+                ai.rank = i + 2; 
+                ai.health = 100;
+                ai.nitroLevel = 100;
+                ai.t = 0;
+                ai.lateralVelocity = 0;
+                ai.angularVelocity = 0;
+                ai.spinAngle = 0;
+                
+                // Reset Grid Position
+                const side = i % 2 === 0 ? 1 : -1;
+                const pos = Math.ceil((i + 1) / 2);
+                ai.laneOffset = side * pos * spacing;
+                ai.lastLaneChange = ai.laneOffset;
+            });
+            // ------------------------------------------
+
             let count = 3;
             onCountdown(3);
             const interval = setInterval(() => {
@@ -1283,7 +1319,7 @@ export const GameScene: React.FC<GameSceneProps> = ({
         } else if (raceStatus === RaceStatus.RACING) {
             raceStartTime.current = Date.now();
         }
-    }, [raceStatus, onCountdown]);
+    }, [raceStatus, onCountdown, aiCount, carConfig]);
 
     const registerVehicle = useCallback((id: string, group: THREE.Group) => {
         vehicleMeshRefs.current[id] = group;
