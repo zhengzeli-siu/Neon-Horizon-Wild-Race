@@ -104,14 +104,25 @@ const App = () => {
     
     // 玩家数据 & 定制
     const [playerState, setPlayerState] = useState<PlayerState>(() => {
-        const saved = localStorage.getItem('neon_race_save_v2'); // New version key
-        return saved ? JSON.parse(saved) : {
-            coins: 100,
-            unlockedCars: ['starter_alpha'],
-            selectedCarId: 'starter_alpha',
-            highScore: 0,
-            carCustomizations: {}
-        };
+        try {
+            const saved = localStorage.getItem('neon_race_save_v2'); 
+            const parsed = saved ? JSON.parse(saved) : null;
+            return parsed && parsed.unlockedCars ? parsed : {
+                coins: 100,
+                unlockedCars: ['starter_alpha'],
+                selectedCarId: 'starter_alpha',
+                highScore: 0,
+                carCustomizations: {}
+            };
+        } catch (e) {
+             return {
+                coins: 100,
+                unlockedCars: ['starter_alpha'],
+                selectedCarId: 'starter_alpha',
+                highScore: 0,
+                carCustomizations: {}
+            };
+        }
     });
 
     // 编辑模式状态
@@ -167,6 +178,26 @@ const App = () => {
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [gameState]);
+
+    // Countdown Logic Centralized in App
+    useEffect(() => {
+        let interval: any;
+        if (raceStatus === RaceStatus.COUNTDOWN) {
+            setCountdownValue(3);
+            let currentCount = 3;
+            interval = setInterval(() => {
+                currentCount -= 1;
+                if (currentCount < 0) {
+                    clearInterval(interval);
+                    setRaceStatus(RaceStatus.RACING);
+                    setCountdownValue(0); 
+                } else {
+                    setCountdownValue(currentCount);
+                }
+            }, 1000);
+        }
+        return () => clearInterval(interval);
+    }, [raceStatus]);
 
     // Volume effect with Master Control
     useEffect(() => {
@@ -235,33 +266,29 @@ const App = () => {
         } catch(e) {}
     };
 
-    const handleStartGame = () => {
+    const handleStartGame = useCallback(() => {
         playClickSound();
         setGameState(GameState.PLAYING);
         setRaceStatus(RaceStatus.COUNTDOWN);
-        setCountdownValue(3);
+        // Countdown is handled by useEffect now
         
         setCurrentScore(0);
         setCurrentLap(1);
         setNitroLevel(100);
         setCurrentHealth(activeCar.maxHealth);
         setCurrentRank(settings.aiCount + 1);
+    }, [activeCar.maxHealth, settings.aiCount]);
 
-        // 3秒倒计时逻辑由 GameScene 驱动回调
-        setTimeout(() => {
-            // 只有在没有暂停的情况下才开始
-            setRaceStatus(prev => prev === RaceStatus.PAUSED ? prev : RaceStatus.RACING);
-        }, 4000); 
-    };
+    const handleCountdown = useCallback((val: number) => {
+        // kept for prop compatibility, but state is managed locally in App
+    }, []);
 
-    const handleCountdown = (val: number) => {
-        setCountdownValue(val);
-    };
-
-    const handleGameOver = (score: number, status: RaceStatus, rank: number) => {
+    const handleGameOver = useCallback((score: number, status: RaceStatus, rank: number) => {
         let money = 0;
         if (status === RaceStatus.FINISHED) {
-             money = (PRIZES as any)[rank] || PRIZES.others;
+             // Safe access for PRIZES
+             const rankKey = rank as keyof typeof PRIZES;
+             money = PRIZES[rankKey] !== undefined ? PRIZES[rankKey] : PRIZES.others;
         } else {
              money = 10; // 安慰奖
         }
@@ -278,9 +305,9 @@ const App = () => {
         
         setRaceStatus(status);
         setGameState(GameState.GAME_OVER);
-    };
+    }, []);
 
-    const handleHUDUpdate = (state: RacerState) => {
+    const handleHUDUpdate = useCallback((state: RacerState) => {
         setCurrentScore(Math.floor(state.distance * 1000));
         setCurrentSpeed(state.speed); // Keep precise for gauge
         setNitroLevel(state.nitroLevel);
@@ -288,7 +315,7 @@ const App = () => {
         setCurrentHealth(state.health);
         setCurrentRank(state.rank);
         setCurrentLap(state.lap);
-    };
+    }, []);
 
     const buyCar = (carId: string, price: number) => {
         if (playerState.coins >= price && !playerState.unlockedCars.includes(carId)) {

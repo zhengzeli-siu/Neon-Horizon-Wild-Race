@@ -1,7 +1,7 @@
 
 import React, { useRef, useMemo, useState, useEffect, useLayoutEffect, useCallback } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { EffectComposer, Bloom, ChromaticAberration, Scanline, Vignette, Noise } from '@react-three/postprocessing';
+import { EffectComposer, Bloom, ChromaticAberration, Vignette, Noise } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { TrackConfig, CarStats, RacerState, WeatherType, BiomeType, Particle, SkidMarkData, RaceStatus, CollisionType } from '../types';
 import { generateTrackPath, getTrackFeatures, TrackFeature, createRoadTexture, createBuildingTexture, createStartFinishTexture, createTunnelTexture, getTerrainHeight, LANE_WIDTH, TRACK_WIDTH, FULL_WIDTH, SHOULDER_WIDTH, GAME_CONFIG } from '../constants';
@@ -22,7 +22,16 @@ const InstancedSkidMarks = React.forwardRef<{ addMark: (pos: THREE.Vector3, rot:
 
     useLayoutEffect(() => {
         if (!ref) return;
-        (ref as any).current = {
+        // Handle both function and object refs
+        const setRef = (instance: any) => {
+             if (typeof ref === 'function') {
+                 ref(instance);
+             } else {
+                 (ref as any).current = instance;
+             }
+        };
+
+        setRef({
             addMark: (pos: THREE.Vector3, rot: THREE.Euler) => {
                 if (!meshRef.current) return;
                 
@@ -36,7 +45,7 @@ const InstancedSkidMarks = React.forwardRef<{ addMark: (pos: THREE.Vector3, rot:
                 
                 indexRef.current = (indexRef.current + 1) % count;
             }
-        };
+        });
     }, [dummy, ref]);
 
     return (
@@ -183,17 +192,11 @@ const SceneryLayer = ({
             const up = new THREE.Vector3(0, 1, 0);
             const binormal = new THREE.Vector3().crossVectors(tangent, up).normalize();
             
-            // Check proximity to ANY track point to prevent cutting corners
-            // This is a simplified check, ideally we use SDF or distance to spline
             const result = placementFn(i, point, binormal);
             if (result) {
-                // IMPORTANT: Ensure objects spawn far enough from the track center
-                // Use a minimum distance (e.g., 35 units) to clear road + shoulders + safety margin
+                // Ensure objects spawn far enough from the track center
                 const MIN_DIST = 35;
                 const distToTrack = result.pos.distanceTo(point);
-                
-                // Extra check: prevent spawning "inside" the loop too close to other segments
-                // This is expensive so we only do a basic distance check to current t
                 if (distToTrack < MIN_DIST) continue; 
 
                 tempObj.position.copy(result.pos);
@@ -277,7 +280,6 @@ const StreetLightSystem = ({ curve, features }: { curve: THREE.CatmullRomCurve3,
             const binormal = new THREE.Vector3().crossVectors(tangent, up).normalize();
             
             const side = i % 2 === 0 ? 1 : -1;
-            // Increased distance for streetlights
             const pos = point.clone().add(binormal.multiplyScalar(side * 20)); 
             
             const h = getTerrainHeight(pos.x, pos.z, BiomeType.CITY);
@@ -319,7 +321,6 @@ const BiomeEnvironment = ({ config, curve, features }: { config: TrackConfig, cu
     const scatterPlacement = (distBase: number, distVar: number, scaleVar: number) => 
         (i: number, point: THREE.Vector3, binormal: THREE.Vector3) => {
             const side = Math.random() > 0.5 ? 1 : -1;
-            // INCREASED SAFE DISTANCE SIGNIFICANTLY
             const dist = (distBase + 35) + Math.random() * distVar; 
             const pos = point.clone().add(binormal.multiplyScalar(dist * side));
             const h = getTerrainHeight(pos.x, pos.z, config.id);
@@ -334,7 +335,6 @@ const BiomeEnvironment = ({ config, curve, features }: { config: TrackConfig, cu
             return { pos, rot, scale: new THREE.Vector3(s, s, s) };
         };
     
-    // ... city billboard logic ...
      const billboardGeo = useMemo(() => new THREE.PlaneGeometry(16, 8), []);
      const billboardMat = useMemo(() => new THREE.MeshBasicMaterial({ color: '#ff00ff', side: THREE.DoubleSide }), []);
      const billboardPlacement = (i: number, point: THREE.Vector3, binormal: THREE.Vector3) => {
@@ -397,8 +397,6 @@ const TrackMesh = ({ curve, config }: { curve: THREE.CatmullRomCurve3, config: T
         const normals: number[] = [];
 
         for (let i = 0; i <= steps; i++) {
-            // FIX: Ensure t loops perfectly from 0 to 1
-            // When i = steps, t = 1. We treat t=1 exactly as t=0 geometry to close the loop without seams.
             const t = i / steps;
             const tSample = t >= 1 ? 0 : t; // Loop back for sampling
             const pt = curve.getPointAt(tSample); 
@@ -443,14 +441,14 @@ const TrackMesh = ({ curve, config }: { curve: THREE.CatmullRomCurve3, config: T
             const vCoord = t * repeat;
             
             // UV Mapping
-            uvs.push(0, vCoord); // Found L
-            uvs.push(0, vCoord); // Wall L Out
             uvs.push(0, vCoord); 
             uvs.push(0, vCoord); 
-            uvs.push(0.0, vCoord); // Shoulder L Start
-            uvs.push(0.12, vCoord); // Road L
-            uvs.push(0.88, vCoord); // Road R
-            uvs.push(1.0, vCoord); // Shoulder R End
+            uvs.push(0, vCoord); 
+            uvs.push(0, vCoord); 
+            uvs.push(0.0, vCoord); 
+            uvs.push(0.12, vCoord); 
+            uvs.push(0.88, vCoord); 
+            uvs.push(1.0, vCoord); 
             uvs.push(1, vCoord); 
             uvs.push(1, vCoord); 
             uvs.push(1, vCoord); 
@@ -629,8 +627,8 @@ const JumpArrows = ({ curve, features }: { curve: THREE.CatmullRomCurve3, featur
             {placements.map((p, i) => (
                 <mesh 
                     key={i} 
-                    ref={el => refs.current[i] = el!} 
-                    position={p.pos.clone().add(new THREE.Vector3(0, 0.5, 0))} 
+                    ref={el => { if(el) refs.current[i] = el; }}
+                    position={[p.pos.x, p.pos.y + 0.5, p.pos.z]} 
                     rotation={[p.rot.x - Math.PI/2, p.rot.y, p.rot.z]}
                 >
                     <planeGeometry args={[12, 6]} />
@@ -649,11 +647,12 @@ const StartLineMesh = ({ curve }: { curve: THREE.CatmullRomCurve3 }) => {
         const dummy = new THREE.Object3D();
         dummy.position.copy(pt);
         dummy.lookAt(look);
-        return { pos: pt, rot: dummy.rotation };
+        return { pos: [pt.x, pt.y, pt.z], rot: [dummy.rotation.x, dummy.rotation.y, dummy.rotation.z] };
     }, [curve]);
 
     return (
-        <group position={pos} rotation={rot}>
+        // Fixed: Use array props for position and rotation to prevent 'read-only' error in some R3F versions
+        <group position={pos as any} rotation={rot as any}>
             <mesh rotation={[-Math.PI/2, 0, 0]} position={[0, 0.05, 0]}>
                 <planeGeometry args={[FULL_WIDTH, 8]} />
                 <meshBasicMaterial map={startFinishTexture} transparent />
@@ -692,7 +691,6 @@ const usePlayerAudio = (volume: number) => {
             const masterGain = ctx.createGain();
             masterGain.connect(ctx.destination);
             
-            // Engine with LowPass Filter
             const engOsc = ctx.createOscillator();
             const engFilter = ctx.createBiquadFilter();
             const engGain = ctx.createGain();
@@ -703,7 +701,6 @@ const usePlayerAudio = (volume: number) => {
             engFilter.type = 'lowpass';
             engFilter.frequency.value = 400; 
             
-            // INITIALIZE GAIN TO 0 TO PREVENT STARTUP NOISE
             engGain.gain.value = 0;
 
             engOsc.start();
@@ -715,7 +712,6 @@ const usePlayerAudio = (volume: number) => {
             engineFilterRef.current = engFilter;
             engineGainRef.current = engGain;
 
-            // Drift & Brake (Reuse Noise Buffer)
             const bufferSize = ctx.sampleRate * 2;
             const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
             const data = buffer.getChannelData(0);
@@ -732,7 +728,7 @@ const usePlayerAudio = (volume: number) => {
             driftFilter.Q.value = 1.0;
 
             const driftGain = ctx.createGain();
-            driftGain.gain.value = 0; // Initialize to 0
+            driftGain.gain.value = 0; 
             
             driftSrc.connect(driftFilter);
             driftFilter.connect(driftGain);
@@ -750,7 +746,7 @@ const usePlayerAudio = (volume: number) => {
             brakeFilter.Q.value = 2.0;
 
             const brakeGain = ctx.createGain();
-            brakeGain.gain.value = 0; // Initialize to 0
+            brakeGain.gain.value = 0; 
 
             brakeSrc.connect(brakeFilter);
             brakeFilter.connect(brakeGain);
@@ -762,7 +758,7 @@ const usePlayerAudio = (volume: number) => {
             nitOsc.type = 'triangle';
             nitOsc.frequency.value = 200;
             nitOsc.start();
-            nitGain.gain.value = 0; // Initialize to 0
+            nitGain.gain.value = 0; 
             nitOsc.connect(nitGain);
             nitGain.connect(masterGain);
             nitroOscRef.current = nitOsc;
@@ -824,7 +820,6 @@ const usePlayerAudio = (volume: number) => {
         const vol = (volume / 100) * master; 
         const ct = contextRef.current.currentTime;
 
-        // If overall volume is effectively 0, mute everything immediately
         if (volume <= 0) {
              if (engineGainRef.current) engineGainRef.current.gain.setTargetAtTime(0, ct, 0.1);
              if (driftGainRef.current) driftGainRef.current.gain.setTargetAtTime(0, ct, 0.1);
@@ -835,13 +830,9 @@ const usePlayerAudio = (volume: number) => {
 
         if (engineOscRef.current && engineGainRef.current && engineFilterRef.current) {
             const absSpeed = Math.abs(speed);
-            // Dynamic frequency: 80Hz (Idle) -> 120Hz (High Speed) for oscillator
             engineOscRef.current.frequency.setTargetAtTime(80 + absSpeed * 0.2, ct, 0.1);
-            
-            // Dynamic Filter: Open up the filter at high speeds (100Hz -> 1500Hz)
             const targetFilterFreq = 100 + absSpeed * 6;
             engineFilterRef.current.frequency.setTargetAtTime(targetFilterFreq, ct, 0.1);
-
             engineGainRef.current.gain.setTargetAtTime(vol * 0.3, ct, 0.1);
         }
         if (driftGainRef.current) {
@@ -877,7 +868,7 @@ const NitroFlame = ({ active, position }: { active: boolean, position: THREE.Vec
                 const p = particles.find(p => p.life <= 0);
                 if (p) {
                     p.life = 0.2 + Math.random() * 0.1;
-                    p.pos.copy(position).add(new THREE.Vector3((Math.random()-0.5)*0.5, 0.5, 1.8)); // Spawning at rear
+                    p.pos.copy(position).add(new THREE.Vector3((Math.random()-0.5)*0.5, 0.5, 1.8)); 
                     p.velocity.set(
                         (Math.random() - 0.5) * 2,
                         (Math.random() - 0.5) * 2,
@@ -980,7 +971,7 @@ const CollisionSparks = ({ active, position }: { active: boolean, position: THRE
     useFrame((_, delta) => {
         if (!meshRef.current) return;
         if (active) {
-            for (let i = 0; i < 8; i++) { // More sparks
+            for (let i = 0; i < 8; i++) {
                 const p = particles.find(p => p.life <= 0);
                 if (p) {
                     p.life = 0.3 + Math.random() * 0.2;
@@ -999,7 +990,7 @@ const CollisionSparks = ({ active, position }: { active: boolean, position: THRE
             if (p.life > 0) {
                 p.life -= delta;
                 p.pos.addScaledVector(p.velocity, delta);
-                p.velocity.y -= GAME_CONFIG.PHYSICS.GRAVITY * delta; // Use Config Gravity
+                p.velocity.y -= GAME_CONFIG.PHYSICS.GRAVITY * delta;
                 
                 const s = p.life * 2;
                 dummy.position.copy(p.pos);
@@ -1039,15 +1030,14 @@ const Vehicle: React.FC<VehicleProps> = ({ racerState, curve, isPlayer, skidMark
     const audio = usePlayerAudio(sfxVolume);
     const [collisionActive, setCollisionActive] = useState(false);
     const [collisionPos, setCollisionPos] = useState(new THREE.Vector3());
-    const keys = useRef({ down: false }); // Track local keys for audio
+    const keys = useRef({ down: false });
 
     // Register mesh ref for direct access by physics engine
     useEffect(() => {
         if (group.current && registerVehicle) {
             registerVehicle(racerState.id, group.current);
-            // Setup collision trigger on user data
             group.current.userData.triggerCollision = (impactPoint: THREE.Vector3) => {
-                if (isPlayer) audio.playCollision(); // Sound handled by individual cars for position? Or globally. Player car makes sense to play.
+                if (isPlayer) audio.playCollision(); 
                 setCollisionPos(impactPoint);
                 setCollisionActive(true);
                 setTimeout(() => setCollisionActive(false), 200);
@@ -1055,7 +1045,7 @@ const Vehicle: React.FC<VehicleProps> = ({ racerState, curve, isPlayer, skidMark
         }
     }, [registerVehicle, racerState.id, isPlayer]);
 
-    // Listen to keys for braking sound (only for player)
+    // Listen to keys for braking sound
     useEffect(() => {
         if(!isPlayer) return;
         const down = (e: KeyboardEvent) => { if(['arrowdown','s'].includes(e.key.toLowerCase())) keys.current.down = true; };
@@ -1078,7 +1068,7 @@ const Vehicle: React.FC<VehicleProps> = ({ racerState, curve, isPlayer, skidMark
                 racerState.speed, 
                 racerState.isDrifting, 
                 racerState.isNitroActive,
-                keys.current.down // Braking
+                keys.current.down 
             );
         }
 
@@ -1088,7 +1078,6 @@ const Vehicle: React.FC<VehicleProps> = ({ racerState, curve, isPlayer, skidMark
         const up = new THREE.Vector3(0, 1, 0); 
         const binormal = new THREE.Vector3().crossVectors(tangent, up).normalize();
         
-        // Calculate lane offset using CONFIG
         const laneX = racerState.laneOffset * (GAME_CONFIG.TRACK.LANE_WIDTH * 1.5 - 2); 
         const currentPos = point.clone().add(binormal.clone().multiplyScalar(laneX));
         
@@ -1096,11 +1085,8 @@ const Vehicle: React.FC<VehicleProps> = ({ racerState, curve, isPlayer, skidMark
         const lookTarget = currentPos.clone().add(tangent);
         group.current.lookAt(lookTarget);
 
-        // Apply Rigid Body Spin to Visuals
         if (chassis.current) {
-            // Base drift rotation
             const driftAngle = racerState.isDrifting ? (racerState.laneOffset > 0 ? 0.3 : -0.3) : 0;
-            // Physical Spin rotation (racerState.spinAngle is in radians)
             const spinRot = racerState.spinAngle;
             
             chassis.current.rotation.y = THREE.MathUtils.lerp(chassis.current.rotation.y, driftAngle + spinRot, delta * 15);
@@ -1113,8 +1099,12 @@ const Vehicle: React.FC<VehicleProps> = ({ racerState, curve, isPlayer, skidMark
             if (lastPos.current.distanceTo(group.current.position) > 0.6) {
                 const l = group.current.position.clone().add(binormal.clone().multiplyScalar(-1.0));
                 const r = group.current.position.clone().add(binormal.clone().multiplyScalar(1.0));
-                skidMarkRef.current.addMark(l, group.current.rotation);
-                skidMarkRef.current.addMark(r, group.current.rotation);
+                
+                // Safety check: ensure addMark exists before calling
+                if (typeof skidMarkRef.current.addMark === 'function') {
+                    skidMarkRef.current.addMark(l, group.current.rotation);
+                    skidMarkRef.current.addMark(r, group.current.rotation);
+                }
                 lastPos.current.copy(group.current.position);
             }
         }
@@ -1122,7 +1112,6 @@ const Vehicle: React.FC<VehicleProps> = ({ racerState, curve, isPlayer, skidMark
 
     return (
         <group ref={group}>
-            {/* Simple Shadow Blob */}
             <mesh rotation={[-Math.PI/2, 0, 0]} position={[0, 0.02, 0]}>
                 <planeGeometry args={[2.8, 5.0]} />
                 <meshBasicMaterial color="#000" transparent opacity={0.6} depthWrite={false} />
@@ -1180,10 +1169,7 @@ interface GameSceneProps {
 export const GameScene: React.FC<GameSceneProps> = ({ 
     trackConfig, carConfig, playerCustomization, onGameOver, onScoreUpdate, onCountdown, raceStatus, quality, sfxVolume, sensitivity, aiCount
 }) => {
-    // 获取当前赛道的特性列表
     const trackFeatures = useMemo(() => getTrackFeatures(trackConfig.id), [trackConfig.id]);
-
-    // 生成赛道曲线
     const curve = useMemo(() => generateTrackPath(42, trackConfig.curveIntensity, trackConfig.length / 3, trackConfig.id, trackFeatures), [trackConfig, trackFeatures]);
     
     const playerRef = useRef<RacerState>({
@@ -1194,23 +1180,19 @@ export const GameScene: React.FC<GameSceneProps> = ({
     
     const aiRefs = useRef<RacerState[]>([]);
     const [renderRacers, setRenderRacers] = useState<RacerState[]>([]);
-    
-    // Store refs to vehicle meshes to trigger visuals imperatively
     const vehicleMeshRefs = useRef<Record<string, THREE.Group | null>>({});
 
     const skidMarkRef = useRef<any>(null);
-    const collisionCooldown = useRef(0);
     const shakeIntensity = useRef(0); 
     const raceStartTime = useRef(0);
     const keys = useRef({ left: false, right: false, up: false, down: false, drift: false, nitro: false });
     const MAX_LAPS = 2;
 
-    const audio = usePlayerAudio(sfxVolume); // Expose audio here too
+    const audio = usePlayerAudio(sfxVolume);
 
     useMemo(() => {
         aiRefs.current = [];
         const colors = ['#ff3333', '#33ff33', '#3333ff', '#ffff33', '#33ffff', '#ff00ff'];
-        
         const totalRacers = aiCount + 1;
         const spacing = 1.4 / totalRacers; 
         
@@ -1243,7 +1225,7 @@ export const GameScene: React.FC<GameSceneProps> = ({
                 color: colors[i % colors.length],
                 velocity: { x: 0, z: 0 },
                 lastLaneChange: 0,
-                skill: GAME_CONFIG.AI.CORNER_SKILL_BASE + Math.random() * 0.6, // Use Config
+                skill: GAME_CONFIG.AI.CORNER_SKILL_BASE + Math.random() * 0.6,
                 aggression: Math.random(),
                 lateralVelocity: 0,
                 angularVelocity: 0,
@@ -1273,7 +1255,6 @@ export const GameScene: React.FC<GameSceneProps> = ({
 
     useEffect(() => {
         if (raceStatus === RaceStatus.COUNTDOWN) {
-            // --- RESET RACER STATS ON NEW RACE START ---
             playerRef.current.lap = 1;
             playerRef.current.distance = 0;
             playerRef.current.speed = 0;
@@ -1300,26 +1281,15 @@ export const GameScene: React.FC<GameSceneProps> = ({
                 ai.lateralVelocity = 0;
                 ai.angularVelocity = 0;
                 ai.spinAngle = 0;
-                
-                // Reset Grid Position
                 const side = i % 2 === 0 ? 1 : -1;
                 const pos = Math.ceil((i + 1) / 2);
                 ai.laneOffset = side * pos * spacing;
                 ai.lastLaneChange = ai.laneOffset;
             });
-            // ------------------------------------------
-
-            let count = 3;
-            onCountdown(3);
-            const interval = setInterval(() => {
-                count--;
-                if (count >= 0) onCountdown(count);
-            }, 1000);
-            return () => clearInterval(interval);
         } else if (raceStatus === RaceStatus.RACING) {
             raceStartTime.current = Date.now();
         }
-    }, [raceStatus, onCountdown, aiCount, carConfig]);
+    }, [raceStatus, aiCount, carConfig]);
 
     const registerVehicle = useCallback((id: string, group: THREE.Group) => {
         vehicleMeshRefs.current[id] = group;
@@ -1330,11 +1300,7 @@ export const GameScene: React.FC<GameSceneProps> = ({
         const p = playerRef.current;
         const isRacing = raceStatus === RaceStatus.RACING;
 
-        // If NOT racing (e.g., Menu, Finished), we might want to skip physics
-        // But we still want visuals to update (camera floating, cars idling visually)
-        // However, we MUST skip audio-related physics updates if volume is 0 or stopped
         if (!isRacing && raceStatus !== RaceStatus.COUNTDOWN) {
-             // Optional: Rotate camera in menu
              if (raceStatus === RaceStatus.READY) {
                 const t = state.clock.getElapsedTime() * 0.1;
                 const pt = curve.getPointAt((t * 0.1) % 1);
@@ -1345,33 +1311,27 @@ export const GameScene: React.FC<GameSceneProps> = ({
         }
 
         if (isRacing) {
-            // --- Physics & Rigid Body Integration ---
-
-            // 1. Damping / Friction using CONFIG
             p.lateralVelocity *= GAME_CONFIG.PHYSICS.FRICTION_LATERAL;
             p.angularVelocity *= GAME_CONFIG.PHYSICS.FRICTION_ANGULAR;
             p.spinAngle += p.angularVelocity * dt;
             
-            // Auto-align spin back to 0 if angular velocity is low (stabilization)
             if (Math.abs(p.angularVelocity) < 0.5) {
                 p.spinAngle = THREE.MathUtils.lerp(p.spinAngle, 0, dt * 5);
             }
 
-            // --- Player Control ---
-            // If spinning out fast (> 3 rad/s), lose control
             const lostControl = Math.abs(p.angularVelocity) > 3.0;
 
             if (keys.current.nitro && p.nitroLevel > 0 && !lostControl) {
                 p.isNitroActive = true;
-                p.nitroLevel = Math.max(0, p.nitroLevel - dt * GAME_CONFIG.PLAYER.NITRO_DRAIN_RATE); // Use Config
+                p.nitroLevel = Math.max(0, p.nitroLevel - dt * GAME_CONFIG.PLAYER.NITRO_DRAIN_RATE); 
                 shakeIntensity.current = Math.max(shakeIntensity.current, 0.4); 
             } else {
                 p.isNitroActive = false;
-                p.nitroLevel = Math.min(100, p.nitroLevel + dt * GAME_CONFIG.PLAYER.NITRO_RECHARGE_RATE); // Use Config
+                p.nitroLevel = Math.min(100, p.nitroLevel + dt * GAME_CONFIG.PLAYER.NITRO_RECHARGE_RATE); 
             }
 
-            const baseSpeed = carConfig.speed * GAME_CONFIG.PLAYER.SPEED_MULTIPLIER; // Use Config
-            const maxSpeed = p.isNitroActive ? baseSpeed * GAME_CONFIG.PLAYER.NITRO_BOOST_POWER : baseSpeed; // Use Config
+            const baseSpeed = carConfig.speed * GAME_CONFIG.PLAYER.SPEED_MULTIPLIER; 
+            const maxSpeed = p.isNitroActive ? baseSpeed * GAME_CONFIG.PLAYER.NITRO_BOOST_POWER : baseSpeed; 
             let targetSpeed = 0;
             
             if (!lostControl) {
@@ -1380,12 +1340,12 @@ export const GameScene: React.FC<GameSceneProps> = ({
             }
             
             p.isDrifting = keys.current.drift && Math.abs(p.speed) > 50 && (keys.current.left || keys.current.right) && !lostControl;
-            if (p.isDrifting) targetSpeed *= GAME_CONFIG.PLAYER.DRIFT_GRIP_LOSS; // Use Config
+            if (p.isDrifting) targetSpeed *= GAME_CONFIG.PLAYER.DRIFT_GRIP_LOSS; 
 
             const accel = keys.current.up ? carConfig.acceleration * 2 : 3.0;
             p.speed = THREE.MathUtils.lerp(p.speed, targetSpeed, dt * accel);
             
-            const sensitivityFactor = (sensitivity / 50) * GAME_CONFIG.PLAYER.STEERING_SENSITIVITY; // Use Config
+            const sensitivityFactor = (sensitivity / 50) * GAME_CONFIG.PLAYER.STEERING_SENSITIVITY; 
             let turn = 0;
             if (!lostControl) {
                 if (keys.current.left) turn -= 1;
@@ -1395,21 +1355,17 @@ export const GameScene: React.FC<GameSceneProps> = ({
             const speedFactor = Math.min(1.0, Math.abs(p.speed) / 50);
             const handling = carConfig.handling * sensitivityFactor * (p.isDrifting ? 1.5 : 1.0) * speedFactor;
             
-            // Apply lateral velocity from impacts + steering
             p.laneOffset += (turn * handling + p.lateralVelocity) * dt;
             
-            // Wall Collision
             if (p.laneOffset > 1.1 || p.laneOffset < -1.1) {
                 p.laneOffset = THREE.MathUtils.clamp(p.laneOffset, -1.2, 1.2);
                 p.speed *= 0.8; 
-                p.health -= dt * GAME_CONFIG.PLAYER.MAX_HEALTH_LOSS; // Use Config
-                // Bounce off wall
+                p.health -= dt * GAME_CONFIG.PLAYER.MAX_HEALTH_LOSS; 
                 p.lateralVelocity = -p.lateralVelocity * GAME_CONFIG.PLAYER.WALL_BOUNCE - (p.laneOffset > 0 ? 2 : -2);
-                shakeIntensity.current = Math.max(shakeIntensity.current, 1.5); // Intense wall shake
-                audio.playCollision(); // Bang sound
+                shakeIntensity.current = Math.max(shakeIntensity.current, 1.5); 
+                audio.playCollision(); 
                 p.angularVelocity += (Math.random() - 0.5) * 5;
 
-                // Visual Spark at side
                 const t = p.t % 1;
                 const pt = curve.getPointAt(t);
                 const tan = curve.getTangentAt(t).normalize();
@@ -1427,13 +1383,11 @@ export const GameScene: React.FC<GameSceneProps> = ({
             p.distance += distStep;
             if(p.t >= 1) { p.t -= 1; p.lap++; if(p.lap > MAX_LAPS) onGameOver(p.distance * 1000, RaceStatus.FINISHED, p.rank); }
 
-            // --- AI Logic Update ---
             const allRacers = [p, ...aiRefs.current].sort((a, b) => b.distance - a.distance);
             p.rank = allRacers.findIndex(r => r.id === p.id) + 1;
 
             aiRefs.current.forEach(ai => {
-                if (!ai) return; // safety
-                // Damping
+                if (!ai) return; 
                 ai.lateralVelocity *= GAME_CONFIG.PHYSICS.FRICTION_LATERAL;
                 ai.angularVelocity *= GAME_CONFIG.PHYSICS.FRICTION_ANGULAR;
                 ai.spinAngle += ai.angularVelocity * dt;
@@ -1445,7 +1399,7 @@ export const GameScene: React.FC<GameSceneProps> = ({
                 const carAhead = allRacers[myIndex - 1];
                 const carBehind = allRacers[myIndex + 1];
 
-                // ... (Look Ahead Logic same as before)
+                // Advanced AI: Look Ahead & Apex Hunting
                 const lookAhead = 0.03 + (ai.speed / 5000);
                 const tCurrent = ai.t % 1;
                 const tFuture = (ai.t + lookAhead) % 1;
@@ -1456,25 +1410,28 @@ export const GameScene: React.FC<GameSceneProps> = ({
                 const vecFar = curve.getTangentAt(tFar);
                 const curveIntensity = vecCurrent.angleTo(vecFuture) + vecFuture.angleTo(vecFar);
                 const cross = new THREE.Vector3().crossVectors(vecCurrent, vecFuture);
-                const turnDir = cross.y;
+                const turnDir = cross.y; // + is left, - is right (approx)
                 const approachingJump = trackFeatures.some(f => f.type === 'JUMP' && tFuture >= f.start && tCurrent <= f.start);
 
                 let maxSafeCornerSpeed = baseSpeed * (0.4 + ai.skill * 0.6); 
                 let targetAiSpeed = baseSpeed;
 
+                // Brake for corners
                 if (curveIntensity > 0.4) {
                     targetAiSpeed = Math.min(targetAiSpeed, maxSafeCornerSpeed * 0.5);
                     ai.isNitroActive = false;
                 } else if (curveIntensity > 0.15) {
                     targetAiSpeed = Math.min(targetAiSpeed, maxSafeCornerSpeed * 0.85);
                 }
-                targetAiSpeed *= (1.0 + ai.aggression * GAME_CONFIG.AI.AGRESSION_BONUS); // Use Config
+                targetAiSpeed *= (1.0 + ai.aggression * GAME_CONFIG.AI.AGRESSION_BONUS); 
 
+                // Speed up for Jumps
                 if (approachingJump) {
                     targetAiSpeed = baseSpeed * 1.5;
                     ai.isNitroActive = true;
                 }
 
+                // Nitro Logic
                 if (ai.nitroLevel > 5 && !aiLostControl) {
                     const onStraight = curveIntensity < 0.1;
                     const recovery = ai.speed < targetAiSpeed * 0.7; 
@@ -1494,14 +1451,14 @@ export const GameScene: React.FC<GameSceneProps> = ({
                     ai.nitroLevel = Math.min(100, ai.nitroLevel + dt * GAME_CONFIG.PLAYER.NITRO_RECHARGE_RATE);
                 }
 
-                if (aiLostControl) targetAiSpeed = 0; // Spin out slows down
+                if (aiLostControl) targetAiSpeed = 0; 
                 ai.speed = THREE.MathUtils.lerp(ai.speed, targetAiSpeed, dt * (0.5 + ai.skill));
-                ai.speed *= (1.0 + (Math.random() - 0.5) * GAME_CONFIG.AI.SPEED_VARIANCE); // Add variance
+                ai.speed *= (1.0 + (Math.random() - 0.5) * GAME_CONFIG.AI.SPEED_VARIANCE); 
 
-                // Steering
                 let laneDesire = 0;
                 let urgency = 0;
 
+                // Overtaking
                 if (carAhead && !aiLostControl) {
                     const dist = carAhead.distance - ai.distance;
                     if (dist < GAME_CONFIG.AI.COLLISION_AVOID_DIST && ai.speed > carAhead.speed - 20) {
@@ -1511,6 +1468,7 @@ export const GameScene: React.FC<GameSceneProps> = ({
                         urgency += overtakeWeight;
                     }
                 }
+                // Blocking
                 if (carBehind && ai.aggression > 0.6 && !aiLostControl) {
                     const dist = ai.distance - carBehind.distance;
                     if (dist < 0.02) {
@@ -1519,7 +1477,11 @@ export const GameScene: React.FC<GameSceneProps> = ({
                         urgency += blockWeight;
                     }
                 }
+                // Apex Hunting (Racing Line)
                 if (curveIntensity > 0.15 && !aiLostControl) {
+                    // If turning left (turnDir > 0), apex is inside (left, negative laneOffset? need to check coord system)
+                    // Actually laneOffset -1 is Left, 1 is Right usually.
+                    // If cross.y is +, curve bends Left. We want to be Left (-1).
                     const apex = turnDir > 0 ? -0.8 : 0.8;
                     const apexWeight = 1.0 + ai.skill;
                     laneDesire += apex * apexWeight;
@@ -1535,20 +1497,17 @@ export const GameScene: React.FC<GameSceneProps> = ({
                 }
                 ai.lastLaneChange = THREE.MathUtils.lerp(ai.lastLaneChange, targetLane, dt * GAME_CONFIG.AI.LANE_CHANGE_SPEED);
                 
-                // Apply control + physics
                 if (!aiLostControl) {
                     ai.laneOffset = THREE.MathUtils.lerp(ai.laneOffset, ai.lastLaneChange, dt * 2.0);
                 }
                 ai.laneOffset += ai.lateralVelocity * dt;
                 ai.laneOffset = THREE.MathUtils.clamp(ai.laneOffset, -1.0, 1.0);
                 
-                // AI Wall Collision
                 if (ai.laneOffset > 1.1 || ai.laneOffset < -1.1) {
                     ai.laneOffset = THREE.MathUtils.clamp(ai.laneOffset, -1.2, 1.2);
                     ai.lateralVelocity = -ai.lateralVelocity * 0.5;
                     ai.angularVelocity += (Math.random() - 0.5) * 4;
                     
-                    // Visual trigger for AI too
                     const t = ai.t % 1;
                     const pt = curve.getPointAt(t);
                     const tan = curve.getTangentAt(t).normalize();
@@ -1565,12 +1524,10 @@ export const GameScene: React.FC<GameSceneProps> = ({
                 if(ai.t >= 1) { ai.t -= 1; ai.lap++; }
             });
 
-            // 5. Advanced Collision Logic (Rigid Body Impulse)
             const timeSinceStart = Date.now() - raceStartTime.current;
             const GRACE_PERIOD = 3000; 
 
             if (timeSinceStart > GRACE_PERIOD) {
-                // Pairwise check: Player vs AI, and AI vs AI
                 const racers = [p, ...aiRefs.current];
                 
                 for (let i = 0; i < racers.length; i++) {
@@ -1578,55 +1535,41 @@ export const GameScene: React.FC<GameSceneProps> = ({
                         const r1 = racers[i];
                         const r2 = racers[j];
                         
-                        // Check proximity in T (longitudinal) and Lane (lateral)
                         const tDiff = Math.abs(r1.t - r2.t);
                         if (tDiff > 0.01 && tDiff < 0.99) continue; 
 
-                        const distT = (r1.distance - r2.distance) * 2000; // Approx meters
-                        const distLane = (r1.laneOffset - r2.laneOffset) * 6; // Approx meters
+                        const distT = (r1.distance - r2.distance) * 2000; 
+                        const distLane = (r1.laneOffset - r2.laneOffset) * 6; 
                         const distSq = distT*distT + distLane*distLane;
                         
-                        const MIN_DIST = 3.0; // Car length/width avg
+                        const MIN_DIST = 3.0; 
                         if (distSq < MIN_DIST * MIN_DIST) {
-                            // COLLISION HIT!
-                            
-                            // 1. Calculate Impulse Vector
                             const pushDir = r1.laneOffset > r2.laneOffset ? 1 : -1;
-                            
-                            // Relative speed
                             const dvLane = r1.lateralVelocity - r2.lateralVelocity;
                             const dvSpeed = r1.speed - r2.speed;
+                            const impact = Math.sqrt(dvLane*dvLane + dvSpeed*dvSpeed * 0.01) + 5.0; 
                             
-                            // Impact Intensity
-                            const impact = Math.sqrt(dvLane*dvLane + dvSpeed*dvSpeed * 0.01) + 5.0; // Base impact
-                            
-                            // Apply Impulse (Newton's 3rd Law)
-                            const force = impact * GAME_CONFIG.PHYSICS.COLLISION_BOUNCE; // Use Config
+                            const force = impact * GAME_CONFIG.PHYSICS.COLLISION_BOUNCE; 
                             r1.lateralVelocity += pushDir * force;
                             r2.lateralVelocity -= pushDir * force;
                             
-                            // Speed transfer (bump drafting or crash stop)
                             r1.speed -= dvSpeed * 0.4;
                             r2.speed += dvSpeed * 0.4;
                             
-                            // 2. Angular Momentum (Spin)
                             const spinForce = (Math.random() - 0.5) * impact * GAME_CONFIG.PHYSICS.COLLISION_SPIN;
                             r1.angularVelocity += spinForce;
                             r2.angularVelocity -= spinForce;
                             
-                            // Damage
                             r1.health -= impact;
                             r2.health -= impact;
                             
-                            // Visuals
                             if (impact > 10) {
                                 shakeIntensity.current = Math.max(shakeIntensity.current, 1.2);
-                                audio.playCollision(); // Louder crash
+                                audio.playCollision(); 
                             } else {
                                 shakeIntensity.current = Math.max(shakeIntensity.current, 0.4);
                             }
                             
-                            // Trigger Sparks on both cars
                             const tMid = (r1.t + r2.t) / 2;
                             const pt = curve.getPointAt(tMid % 1);
                             
@@ -1649,7 +1592,6 @@ export const GameScene: React.FC<GameSceneProps> = ({
             onScoreUpdate({ ...p });
         }
 
-        // --- Camera Logic ---
         const cam = state.camera as THREE.PerspectiveCamera;
         const targetFOV = 60 + Math.min(50, p.speed * 0.25);
         cam.fov = THREE.MathUtils.lerp(cam.fov, targetFOV, dt * 3);
@@ -1665,12 +1607,10 @@ export const GameScene: React.FC<GameSceneProps> = ({
         const carWorldPos = pt.clone().add(binormal.multiplyScalar(laneX));
         carWorldPos.y += 1.0; 
 
-        // Chase Camera
         const camOffset = tan.clone().multiplyScalar(-9.0).add(new THREE.Vector3(0, 4.0, 0));
         
         if (p.isDrifting || Math.abs(p.angularVelocity) > 1) {
             const side = p.laneOffset > 0 ? -1 : 1;
-            // Camera lag behind spin
             camOffset.add(binormal.clone().multiplyScalar(side * 2.5));
         }
 
@@ -1709,7 +1649,7 @@ export const GameScene: React.FC<GameSceneProps> = ({
             <InstancedSkidMarks ref={skidMarkRef} />
             
             <Vehicle 
-                racerState={playerRef.current} // Pass current state directly
+                racerState={playerRef.current} 
                 curve={curve} 
                 isPlayer={true} 
                 skidMarkRef={skidMarkRef} 
@@ -1721,7 +1661,7 @@ export const GameScene: React.FC<GameSceneProps> = ({
             {renderRacers.map((ai, i) => (
                 <Vehicle 
                     key={ai.id} 
-                    racerState={aiRefs.current[i]} // Pass reference to mutable state
+                    racerState={aiRefs.current[i]} 
                     curve={curve} 
                     isPlayer={false} 
                     sfxVolume={0} 
